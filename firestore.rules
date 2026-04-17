@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - Unique ID
+    //   - name: string (required) - Display name (max 50 chars)
+    //   - email: string (required) - User email
+    //   - avatarUrl: string (optional) - Profile picture URL or base64
+    //   - bannerUrl: string (optional) - Banner picture URL or base64
+    //   - bio: string (optional) - User bio (max 500 chars)
+    //   - role: string (required) - 'user' or 'admin'
+    //   - createdAt: timestamp (required) - Creation time
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+         (request.auth.token.email == "alitabash0@gmail.com"));
+    }
+
+    function isBanned() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isBanned', false) == true;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidImage(img) {
+      return img is string && (
+        img == "" ||
+        img.matches("^https?://.*") || 
+        img.matches("^data:image/.*;base64,.*")
+      ) && img.size() < 2000000;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Domain Validator for User
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'avatarUrl', 'bannerUrl', 'bio', 'role', 'badges', 'isBanned', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
+             isValidEmail(data.email) &&
+             (!('avatarUrl' in data) || isValidImage(data.avatarUrl)) &&
+             (!('bannerUrl' in data) || isValidImage(data.bannerUrl)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
+             data.role in ['user', 'staff', 'staff_plus', 'moderator', 'analyst', 'admin'] &&
+             (!('badges' in data) || data.badges is list) &&
+             (!('isBanned' in data) || data.isBanned is bool) &&
+             data.createdAt is timestamp;
+    }
+
+    // Domain Validator for Comment
+    function isValidComment(data) {
+      return hasOnlyAllowedFields(['id', 'manhwaId', 'chapterId', 'userId', 'userName', 'userAvatar', 'userRole', 'content', 'parentId', 'likes', 'dislikes', 'reactions', 'isPinned', 'isApproved', 'media', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
+             data.createdAt is timestamp &&
+             data.likes is int &&
+             data.dislikes is int &&
+             data.isPinned is bool &&
+             data.isApproved is bool &&
+             data.media is list &&
+             (data.parentId == null || data.parentId is string) &&
+             (data.chapterId == null || data.chapterId is string);
+    }
+
+    // User Collection Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'user' || isAdmin());
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                      isValidUser(request.resource.data) && 
+                      (isAdmin() || (request.resource.data.role == resource.data.role && request.resource.data.isBanned == resource.data.isBanned)) &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin();
+    }
+
+    // Comments Collection Rules
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && !isBanned() && isValidComment(request.resource.data) &&
+                      request.resource.data.likes == 0 &&
+                      request.resource.data.dislikes == 0 &&
+                      (request.resource.data.isPinned == false || isAdmin());
+      allow update: if isAuthenticated() && !isBanned() && (
+        (isOwner(resource.data.userId) && 
+         isValidComment(request.resource.data) && 
+         request.resource.data.isPinned == resource.data.isPinned && 
+         request.resource.data.isApproved == resource.data.isApproved &&
+         request.resource.data.likes == resource.data.likes &&
+         request.resource.data.dislikes == resource.data.dislikes
+        ) ||
+        isAdmin() ||
+        // Allow anyone to update likes/dislikes (simplified for now, ideally use a subcollection for votes)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'dislikes']))
+      );
+      allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+    }
+
+    // Notifications Collection Rules
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated(); // Allow users to send notifications (e.g. on reply)
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    // Manhwa Collection Rules
+    match /manhwas/{manhwaId} {
+      allow read: if true;
+      allow write: if isAdmin();
+      
+      match /chapters/{chapterId} {
+        allow read: if true;
+        allow write: if true; // Server automation writes (API server is the security layer)
+      }
+    }
+
+    // View Collection Rules
+    match /views/{viewId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    // Reports Collection Rules
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Settings Collection Rules
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "Manhwa": {
+      "title": "Manhwa",
+      "description": "Stores manhwa, manga, or manhua details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "author": { "type": "string" },
+        "description": { "type": "string" },
+        "genres": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string", "enum": ["manhwa", "manga", "manhua"] },
+        "status": { "type": "string", "enum": ["ongoing", "completed"] },
+        "coverImage": { "type": "string" },
+        "bannerImage": { "type": "string" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "author", "genres", "type", "status", "createdAt"]
+    },
+    "Chapter": {
+      "title": "Chapter",
+      "description": "Stores chapter details and release schedule.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "manhwaId": { "type": "string" },
+        "chapterNumber": { "type": "number" },
+        "title": { "type": "string" },
+        "releaseDate": { "type": "string", "format": "date-time" },
+        "staffId": { "type": "string" },
+        "views": { "type": "integer" }
+      },
+      "required": ["id", "manhwaId", "chapterNumber", "releaseDate", "staffId"]
+    },
+    "View": {
+      "title": "View",
+      "description": "Tracks views for manhwa or chapters.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "manhwaId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "manhwaId", "timestamp"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a manhwa or chapter.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "manhwaId": { "type": "string" },
+        "chapterId": { "type": "string", "description": "Optional, if comment is on a specific chapter." },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userAvatar": { "type": "string" },
+        "userRole": { "type": "string" },
+        "content": { "type": "string", "description": "Markdown content." },
+        "parentId": { "type": "string", "description": "ID of the parent comment for nesting." },
+        "likes": { "type": "integer" },
+        "dislikes": { "type": "integer" },
+        "reactions": { "type": "object", "description": "Map of emoji to count." },
+        "isPinned": { "type": "boolean" },
+        "isApproved": { "type": "boolean" },
+        "media": { "type": "array", "items": { "type": "string" }, "description": "URLs to images or videos." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["manhwaId", "userId", "content", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification for the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["reply", "like", "mention", "system"] },
+        "fromUserId": { "type": "string" },
+        "fromUserName": { "type": "string" },
+        "content": { "type": "string" },
+        "link": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "content", "read", "createdAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "A report on a comment.",
+      "type": "object",
+      "properties": {
+        "commentId": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "resolved", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["commentId", "reporterId", "reason", "status", "createdAt"]
+    },
+    "SiteSettings": {
+      "title": "Site Settings",
+      "description": "Global settings for the platform.",
+      "type": "object",
+      "properties": {
+        "bannedWords": { "type": "array", "items": { "type": "string" } },
+        "maintenanceMode": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles." },
+    "/manhwas/{manhwaId}": { "schema": "Manhwa", "description": "Manhwa collection." },
+    "/manhwas/{manhwaId}/chapters/{chapterId}": { "schema": "Chapter", "description": "Chapters for each manhwa." },
+    "/views/{viewId}": { "schema": "View", "description": "View tracking." },
+    "/comments/{commentId}": { "schema": "Comment", "description": "Global comments collection." },
+    "/notifications/{notifId}": { "schema": "Notification", "description": "User notifications." },
+    "/reports/{reportId}": { "schema": "Report", "description": "User reports on content." },
+    "/settings/global": { "schema": "SiteSettings", "description": "Global configuration." }
+  }
+}
