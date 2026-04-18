@@ -36,6 +36,16 @@ export default defineConfig(({ mode }) => {
         outDir: 'dist',
         emptyOutDir: true,
         sourcemap: false,
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+              'vendor-firebase': ['firebase/app', 'firebase/firestore', 'firebase/auth', 'firebase/storage'],
+              'vendor-motion': ['framer-motion'],
+              'vendor-charts': ['recharts'],
+            }
+          }
+        }
       },
       // Prevent server-only packages from being included in the client bundle
       optimizeDeps: {

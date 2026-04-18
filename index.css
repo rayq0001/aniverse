@@ -55,6 +55,14 @@ body {
   box-shadow: 0 0 20px -5px var(--accent-color);
 }
 
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 .glass {
   @apply bg-white/5 backdrop-blur-xl border border-white/10;
 }

@@ -1,16 +1,21 @@
 
-import React, { useState, useEffect } from 'react';
-import { Star, Heart, CheckCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Heart, CheckCircle, BookOpen, Clock } from 'lucide-react';
 import { Manhwa, GenreEn } from '../types';
 import * as ReactRouterDOM from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import { LazyLoadImage } from 'react-lazy-load-image-component';
+import { useInView } from 'react-intersection-observer';
+import { collection, getCountFromServer, doc, updateDoc } from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 const { Link } = ReactRouterDOM as any;
 
 interface ManhwaCardProps {
   manhwa: Manhwa;
 }
+
+const dayMap: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
 const ManhwaCard: React.FC<ManhwaCardProps> = ({ manhwa }) => {
   const { t, language } = useLanguage();
@@ -22,7 +27,7 @@ const ManhwaCard: React.FC<ManhwaCardProps> = ({ manhwa }) => {
     setIsLiked(favs.includes(manhwa.id));
   }, [manhwa.id]);
 
-  const toggleLike = (e: React.MouseEvent) => {
+  const toggleLike = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsAnimate(true);
@@ -33,102 +38,127 @@ const ManhwaCard: React.FC<ManhwaCardProps> = ({ manhwa }) => {
     localStorage.setItem('user_favorites', JSON.stringify(newFavs));
     setIsLiked(!isLiked);
     window.dispatchEvent(new Event('favoritesUpdated'));
-  };
+    // Sync to Firestore
+    if (auth.currentUser) {
+      updateDoc(doc(db, 'users', auth.currentUser.uid), { favorites: newFavs }).catch(() => {});
+    }
+  }, [isLiked, manhwa.id]);
 
   const title = language === 'en' ? manhwa.titleEn || manhwa.title : manhwa.title;
+  const [chapterCount, setChapterCount] = useState(manhwa.chapters?.length || 0);
+
+  useEffect(() => {
+    getCountFromServer(collection(db, 'manhwas', manhwa.id, 'chapters'))
+      .then(snap => setChapterCount(snap.data().count))
+      .catch(() => {});
+  }, [manhwa.id]);
+
+  const nextChapterText = useMemo(() => {
+    if (manhwa.status !== 'ongoing') return null;
+    const scheduleDays = manhwa.releaseSchedule;
+    const updateDay = manhwa.updateDay;
+    if (!scheduleDays?.length && updateDay == null) return null;
+
+    const today = new Date();
+    const todayDay = today.getDay();
+    let targetDays: number[] = [];
+
+    if (scheduleDays?.length) {
+      targetDays = scheduleDays.map(d => dayMap[d.toLowerCase()] ?? -1).filter(d => d >= 0);
+    } else if (updateDay != null) {
+      targetDays = [updateDay];
+    }
+    if (!targetDays.length) return null;
+
+    let minDiff = 8;
+    for (const td of targetDays) {
+      let diff = td - todayDay;
+      if (diff <= 0) diff += 7;
+      if (diff < minDiff) minDiff = diff;
+    }
+
+    if (language === 'ar') {
+      return minDiff === 1 ? 'غداً' : `بعد ${minDiff} أيام`;
+    }
+    return minDiff === 1 ? 'Tomorrow' : `In ${minDiff} days`;
+  }, [manhwa.releaseSchedule, manhwa.updateDay, manhwa.status, language]);
+
+  const { ref: cardRef, inView } = useInView({ triggerOnce: true, rootMargin: '200px' });
 
   return (
-    <motion.div
-      whileHover={{ y: -8 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="h-full"
-    >
+    <div ref={cardRef} className="h-full">
+      {!inView ? (
+        <div className="aspect-[2/3] bg-neutral-900 rounded-xl animate-pulse" />
+      ) : (
       <Link 
         to={`/details/${manhwa.id}`}
-        className="group relative block aspect-[2/3] bg-neutral-900 rounded-[2.5rem] overflow-hidden border border-white/5 transition-all duration-700 ease-out hover:border-[var(--accent-color)]/40 hover:shadow-[0_20px_50px_-12px_rgba(var(--accent-rgb),0.3)]"
+        className="group block h-full"
       >
-        <img 
-          src={manhwa.coverImage} 
-          alt={title}
-          className="w-full h-full object-cover transition-all duration-1000 group-hover:scale-110 group-hover:blur-sm group-hover:brightness-50"
-          loading="lazy"
-        />
-        
-        {/* Hover Overlay */}
-        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col p-5 md:p-7 text-center justify-center items-center backdrop-blur-sm bg-black/40">
+        {/* Cover Image */}
+        <div className="relative aspect-[2/3] bg-neutral-900 rounded-xl overflow-hidden mb-2.5">
+          <LazyLoadImage 
+            src={manhwa.coverImage} 
+            alt={title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            wrapperClassName="w-full h-full"
+            effect="opacity"
+            threshold={100}
+          />
           
-          {/* Top Controls Container */}
-          <div className="absolute top-5 left-0 right-0 px-5 flex justify-between items-start w-full pointer-events-none">
-            {/* Heart Button */}
-            <div className="pointer-events-auto scale-75 group-hover:scale-100 transition-all duration-500 delay-100 -translate-y-4 group-hover:translate-y-0">
-              <button 
-                onClick={toggleLike}
-                className={`p-2.5 rounded-2xl backdrop-blur-2xl transition-all duration-300 active:scale-90 border border-white/10 ${isLiked ? 'bg-white text-black shadow-lg shadow-white/10' : 'bg-black/40 text-white/80 hover:bg-black/60'}`}
-              >
-                <Heart 
-                  size={14} 
-                  fill={isLiked ? "currentColor" : "none"} 
-                  className={`transition-all duration-300 ${isAnimate ? 'scale-150 rotate-12' : 'scale-100 rotate-0'}`}
-                />
-              </button>
-            </div>
+          {/* Gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          
+          {/* Heart button */}
+          <button 
+            onClick={toggleLike}
+            className={`absolute top-2 end-2 p-2 rounded-lg backdrop-blur-sm transition-all ${isLiked ? 'bg-white text-black' : 'bg-black/40 text-white opacity-0 group-hover:opacity-100'}`}
+          >
+            <Heart size={14} fill={isLiked ? "currentColor" : "none"} className={isAnimate ? 'scale-125' : ''} />
+          </button>
 
-            {/* Status Badge */}
-            <div className="pointer-events-auto scale-75 group-hover:scale-100 transition-all duration-500 delay-100 -translate-y-4 group-hover:translate-y-0">
-               <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-[8px] font-black uppercase tracking-[0.15em] backdrop-blur-2xl border transition-all duration-500 ${
-                 manhwa.status === 'ongoing' 
-                 ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
-                 : 'bg-white border-white text-black'
-               }`}>
-                 {manhwa.status === 'ongoing' ? (
-                   <>
-                     <span className="relative flex h-1.5 w-1.5">
-                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                       <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                     </span>
-                     {t('status_ongoing')}
-                   </>
-                 ) : (
-                   <>
-                     <CheckCircle size={10} />
-                     {t('status_completed')}
-                   </>
-                 )}
-               </span>
-            </div>
+          {/* Status badge */}
+          <div className="absolute top-2 start-2">
+            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold backdrop-blur-sm ${
+              manhwa.status === 'ongoing' 
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                : 'bg-white/90 text-black'
+            }`}>
+              {manhwa.status === 'ongoing' ? (
+                <><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{t('status_ongoing')}</>
+              ) : (
+                <><CheckCircle size={10} />{t('status_completed')}</>
+              )}
+            </span>
           </div>
 
-          {/* Center Content */}
-          <div className="flex flex-col items-center w-full space-y-3 md:space-y-4">
-            {/* Name */}
-            <h3 className="text-white font-black text-base md:text-xl translate-y-6 group-hover:translate-y-0 transition-all duration-500 delay-150 line-clamp-2 tracking-tight leading-tight">
-              {title}
-            </h3>
-            
-            {/* Classification (Genres) */}
-            <div className="flex flex-wrap justify-center gap-1.5 translate-y-6 group-hover:translate-y-0 transition-all duration-500 delay-200">
-              {manhwa.genres.slice(0, 2).map(genre => (
-                <span key={genre} className="text-[8px] md:text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border backdrop-blur-md" style={{ color: 'var(--accent-color)', backgroundColor: 'rgba(var(--accent-rgb), 0.1)', borderColor: 'rgba(var(--accent-rgb), 0.2)' }}>
-                  {language === 'en' ? GenreEn[genre] || genre : genre}
-                </span>
-              ))}
+          {/* Bottom info on hover */}
+          <div className="absolute bottom-0 inset-x-0 p-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <div className="flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-md">
+              <BookOpen size={11} className="text-white/70" />
+              <span className="text-[10px] font-bold text-white">{chapterCount}</span>
             </div>
-
-            {/* Bio (Description) */}
-            <p className="text-neutral-300 text-[9px] md:text-[10px] font-medium line-clamp-3 md:line-clamp-4 translate-y-6 group-hover:translate-y-0 transition-all duration-500 delay-250 leading-relaxed max-w-[90%] opacity-80">
-              {language === 'en' ? manhwa.descriptionEn || manhwa.description : manhwa.description}
-            </p>
-
-            {/* Ratings */}
-            <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 translate-y-6 group-hover:translate-y-0 transition-all duration-500 delay-300">
-              <Star size={14} className="text-yellow-500 fill-yellow-500" />
-              <span className="text-sm font-black text-white">{manhwa.rating}</span>
-            </div>
+            {nextChapterText && (
+              <div className="flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-md">
+                <Clock size={11} className="text-white/70" />
+                <span className="text-[10px] font-bold text-white whitespace-nowrap">{nextChapterText}</span>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Title & Genres */}
+        <h3 className="font-bold text-sm text-white line-clamp-1 group-hover:text-neutral-300 transition-colors">{title}</h3>
+        <div className="flex items-center gap-1.5 mt-1">
+          {manhwa.genres.slice(0, 2).map(genre => (
+            <span key={genre} className="text-[10px] text-neutral-500">
+              {language === 'en' ? GenreEn[genre] || genre : genre}
+            </span>
+          ))}
+        </div>
       </Link>
-    </motion.div>
+      )}
+    </div>
   );
 };
 
-export default ManhwaCard;
+export default React.memo(ManhwaCard);

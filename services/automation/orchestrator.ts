@@ -6,6 +6,26 @@ import { GoogleSyncService } from './googleSync';
 import { convertToWebP } from './tools/sharp-compositor';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+// Fetch with retry + exponential backoff for transient network errors
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err: any) {
+      const isRetryable = err?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        err?.cause?.code === 'ECONNRESET' ||
+        err?.cause?.code === 'ENOTFOUND' ||
+        err?.message?.includes('fetch failed');
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+      console.warn(`[fetchWithRetry] Attempt ${attempt + 1} failed (${err?.cause?.code || err.message}), retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('fetchWithRetry: unreachable');
+}
+
 // Firestore REST API helper (avoids client SDK gRPC issues on server)
 async function firestoreSet(collectionPath: string, docId: string, data: Record<string, any>) {
   const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${firebaseConfig.firestoreDatabaseId}/documents/${collectionPath}/${docId}`;
@@ -19,7 +39,7 @@ async function firestoreSet(collectionPath: string, docId: string, data: Record<
       fields[key] = { arrayValue: { values: value.map((v: any) => ({ stringValue: String(v) })) } };
     }
   }
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),

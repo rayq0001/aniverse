@@ -1,19 +1,22 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Layout from './components/Layout';
 import Home from './pages/Home';
-import Details from './pages/Details';
-import Reader from './pages/Reader';
-import Library from './pages/Library';
-import AdvancedSearch from './pages/AdvancedSearch';
-import Profile from './pages/Profile';
-import AdminDashboard from './pages/AdminDashboard';
-import HelpCenter from './pages/HelpCenter';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfService from './pages/TermsOfService';
-import ContactUs from './pages/ContactUs';
+
+const Details = lazy(() => import('./pages/Details'));
+const Reader = lazy(() => import('./pages/Reader'));
+const Library = lazy(() => import('./pages/Library'));
+const AdvancedSearch = lazy(() => import('./pages/AdvancedSearch'));
+const Profile = lazy(() => import('./pages/Profile'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const HelpCenter = lazy(() => import('./pages/HelpCenter'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
+const ContactUs = lazy(() => import('./pages/ContactUs'));
+const UserProfile = lazy(() => import('./pages/UserProfile'));
 import { LanguageProvider } from './contexts/LanguageContext';
+import { ManhwaProvider } from './contexts/ManhwaContext';
 
 const App: React.FC = () => {
   useEffect(() => {
@@ -54,8 +57,10 @@ const App: React.FC = () => {
 
   return (
     <LanguageProvider>
+      <ManhwaProvider>
       <Router>
         <Layout>
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/details/:id" element={<Details />} />
@@ -68,10 +73,13 @@ const App: React.FC = () => {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/contact-us" element={<ContactUs />} />
+            <Route path="/user/:uid" element={<UserProfile />} />
           </Routes>
+          </Suspense>
         </Layout>
         <Toaster theme="dark" position="bottom-center" toastOptions={{ style: { background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' } }} />
       </Router>
+      </ManhwaProvider>
     </LanguageProvider>
   );
 };

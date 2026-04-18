@@ -8,7 +8,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { auth, db, handleFirestoreError, OperationType, onPresenceChange } from '../firebase';
 import { 
   collection, query, where, orderBy, onSnapshot, 
   addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
@@ -58,6 +58,13 @@ const CommentItem: React.FC<{
   const [replyContent, setReplyContent] = useState('');
   const [isExpanded, setIsExpanded] = useState(true);
   const [showReportOptions, setShowReportOptions] = useState(false);
+  const [isOnline, setIsOnline] = useState(false);
+
+  useEffect(() => {
+    if (!comment.userId) return;
+    const unsub = onPresenceChange(comment.userId, setIsOnline);
+    return () => unsub();
+  }, [comment.userId]);
 
   const getReplies = (parentId: string) => allComments.filter(c => c.parentId === parentId);
 
@@ -103,38 +110,42 @@ const CommentItem: React.FC<{
   };
 
   return (
-    <div className={`relative ${comment.parentId ? 'ml-6 md:ml-10 mt-4 border-l-2 border-white/5 pl-4' : 'mt-8'}`}>
-      <div className={`group relative p-4 rounded-2xl transition-all duration-300 ${comment.isPinned ? 'bg-white/5 border border-white/10 shadow-lg' : 'hover:bg-white/5'}`}>
+    <div className={`relative ${comment.parentId ? 'ml-6 md:ml-10 mt-3 border-l border-white/[0.06] pl-4' : 'mt-5'}`}>
+      <div className={`group relative p-3 rounded-xl transition-colors ${comment.isPinned ? 'bg-white/[0.04] border border-white/[0.06]' : 'hover:bg-white/[0.03]'}`}>
         {comment.isPinned && (
-          <div className="flex items-center gap-2 text-xs font-black text-white/50 mb-2 uppercase tracking-widest">
-            <Pin size={12} className="fill-current" />
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 mb-2">
+            <Pin size={10} className="fill-current" />
             <span>{t('pinned_comment')}</span>
           </div>
         )}
 
-        <div className="flex gap-4">
-          <div className="shrink-0">
-            <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden border border-white/10">
+        <div className="flex gap-3">
+          <div className="shrink-0 cursor-pointer relative" onClick={() => comment.userId && window.location.assign(`#/user/${comment.userId}`)}>
+            <div className="w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center overflow-hidden border border-white/[0.06]">
               {comment.userAvatar ? (
                 <img src={comment.userAvatar} alt={comment.userName} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-sm font-black">{comment.userName.charAt(0).toUpperCase()}</span>
+                <span className="text-xs font-bold">{comment.userName.charAt(0).toUpperCase()}</span>
               )}
             </div>
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-neutral-900 ${isOnline ? 'bg-emerald-500' : 'bg-neutral-600'}`} />
           </div>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-sm text-white">{comment.userName}</span>
+                <span 
+                  className="font-bold text-sm text-white hover:text-neutral-300 cursor-pointer transition-colors"
+                  onClick={() => comment.userId && window.location.assign(`#/user/${comment.userId}`)}
+                >{comment.userName}</span>
                 {comment.userRole && comment.userRole !== 'user' && (
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
+                  <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
                     comment.userRole === 'admin' ? 'bg-red-500 text-white' :
                     comment.userRole === 'moderator' ? 'bg-purple-500 text-white' :
                     comment.userRole.startsWith('staff') ? 'bg-emerald-500 text-white' :
                     'bg-white text-black'
                   }`}>
-                    <Shield size={10} />
+                    <Shield size={8} />
                     {comment.userRole.replace('_', ' ')}
                   </span>
                 )}
@@ -180,9 +191,9 @@ const CommentItem: React.FC<{
                         initial={{ opacity: 0, scale: 0.9, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                        className={`absolute bottom-full mb-2 ${language === 'ar' ? 'left-0' : 'right-0'} w-48 bg-neutral-900 border border-white/10 rounded-2xl p-2 shadow-2xl z-50`}
+                        className={`absolute bottom-full mb-2 ${language === 'ar' ? 'left-0' : 'right-0'} w-44 bg-black border border-white/[0.08] rounded-lg p-1.5 shadow-xl z-50`}
                       >
-                        <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest px-3 py-2 border-b border-white/5 mb-1">{t('reason')}</p>
+                        <p className="text-[9px] font-bold text-neutral-500 px-2 py-1.5 border-b border-white/[0.04] mb-0.5">{t('reason')}</p>
                         {[
                           { id: 'offensive_content', label: t('offensive_content') },
                           { id: 'spam', label: t('spam') },
@@ -195,7 +206,7 @@ const CommentItem: React.FC<{
                               onReport(comment.id, reason.label);
                               setShowReportOptions(false);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-xl hover:bg-white/5 text-xs font-bold transition-all"
+                            className="w-full text-left px-2 py-1.5 rounded-md hover:bg-white/[0.06] text-xs transition-colors"
                             style={{ textAlign: language === 'ar' ? 'right' : 'left' }}
                           >
                             {reason.label}
@@ -222,39 +233,39 @@ const CommentItem: React.FC<{
               )}
             </div>
 
-            <div className="flex items-center gap-4 mt-4">
-              <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3 mt-3">
+              <div className="flex items-center gap-0.5">
                 <button 
                   onClick={() => onLike(comment.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10 transition-all active:scale-95 text-neutral-400 hover:text-white"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
                 >
-                  <ThumbsUp size={14} />
-                  <span className="text-xs font-black">{comment.likes}</span>
+                  <ThumbsUp size={12} />
+                  <span className="text-[10px] font-bold">{comment.likes}</span>
                 </button>
                 <button 
                   onClick={() => onDislike(comment.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10 transition-all active:scale-95 text-neutral-400 hover:text-white"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
                 >
-                  <ThumbsDown size={14} />
-                  <span className="text-xs font-black">{comment.dislikes}</span>
+                  <ThumbsDown size={12} />
+                  <span className="text-[10px] font-bold">{comment.dislikes}</span>
                 </button>
               </div>
 
               <button 
                 onClick={() => setShowReplyForm(!showReplyForm)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10 transition-all active:scale-95 text-neutral-400 hover:text-white"
+                className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
               >
-                <Reply size={14} />
-                <span className="text-xs font-black">{t('reply')}</span>
+                <Reply size={12} />
+                <span className="text-[10px] font-bold">{t('reply')}</span>
               </button>
 
               {replies.length > 0 && (
                 <button 
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10 transition-all active:scale-95 text-neutral-400 hover:text-white"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
                 >
-                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  <span className="text-xs font-black">{replies.length} {t('replies')}</span>
+                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  <span className="text-[10px] font-bold">{replies.length} {t('replies')}</span>
                 </button>
               )}
             </div>
@@ -265,15 +276,15 @@ const CommentItem: React.FC<{
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="mt-4"
+                  className="mt-3"
                 >
-                  <div className="flex gap-3">
+                  <div className="flex gap-2">
                     <div className="flex-1">
                       <textarea
                         value={replyContent}
                         onChange={(e) => setReplyContent(e.target.value)}
                         placeholder={t('write_reply')}
-                        className="w-full bg-neutral-900 border border-white/5 rounded-xl p-3 text-sm focus:outline-none focus:border-white/20 transition-all min-h-[80px]"
+                        className="w-full bg-black/30 border border-white/[0.06] rounded-lg p-3 text-sm focus:outline-none focus:border-white/[0.15] transition-colors min-h-[70px] resize-none"
                       />
                     </div>
                     <button 
@@ -284,9 +295,9 @@ const CommentItem: React.FC<{
                           setShowReplyForm(false);
                         }
                       }}
-                      className="self-end p-3 bg-white text-black rounded-xl hover:bg-neutral-200 transition-all active:scale-95"
+                      className="self-end p-2.5 bg-white text-black rounded-lg hover:bg-neutral-200 transition-colors"
                     >
-                      <Send size={18} />
+                      <Send size={14} />
                     </button>
                   </div>
                 </motion.div>
@@ -367,7 +378,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const role = userDoc.data().role || 'user';
-          setIsAdmin(role === 'admin');
+          setIsAdmin(user.email === 'me.rayq0001@gmail.com');
           setUserRole(role);
         }
       }
@@ -518,28 +529,28 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
   const getReplies = (parentId: string) => filteredComments.filter(c => c.parentId === parentId);
 
   return (
-    <div className="mt-12 border-t border-white/5 pt-12">
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-3">
-          <MessageSquare className="text-white" />
-          <h2 className="text-2xl font-black tracking-tight">{t('comments')} ({comments.length})</h2>
+    <div className="mt-8 border-t border-white/[0.04] pt-8">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <MessageSquare size={18} className="text-neutral-400" />
+          <h2 className="text-base font-bold">{t('comments')} ({comments.length})</h2>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <div className="relative hidden md:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500" size={14} />
             <input 
               type="text" 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('search_comments')}
-              className="bg-neutral-900 border border-white/5 rounded-xl py-2 pl-10 pr-4 text-xs focus:outline-none focus:border-white/20 transition-all w-48"
+              className="bg-white/[0.03] border border-white/[0.06] rounded-lg py-1.5 pl-8 pr-3 text-xs focus:outline-none focus:border-white/[0.15] transition-colors w-44"
             />
           </div>
           <select 
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-neutral-900 border border-white/5 rounded-xl py-2 px-4 text-xs font-black focus:outline-none focus:border-white/20 transition-all"
+            className="bg-white/[0.03] border border-white/[0.06] rounded-lg py-1.5 px-3 text-xs font-bold focus:outline-none focus:border-white/[0.15] transition-colors"
           >
             <option value="newest">{t('newest')}</option>
             <option value="popular">{t('popular')}</option>
@@ -548,43 +559,43 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
       </div>
 
       {currentUser ? (
-        <div className="mb-12 bg-white/5 border border-white/10 rounded-[2rem] p-6">
-          <div className="flex gap-4">
+        <div className="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+          <div className="flex gap-3">
             <div className="shrink-0">
-              <div className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden border border-white/10">
+              <div className="w-9 h-9 rounded-lg bg-neutral-800 flex items-center justify-center overflow-hidden border border-white/[0.06]">
                 {currentUser.photoURL ? (
                   <img src={currentUser.photoURL} alt={currentUser.displayName} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-lg font-black">{currentUser.displayName?.charAt(0).toUpperCase() || 'U'}</span>
+                  <span className="text-sm font-bold">{currentUser.displayName?.charAt(0).toUpperCase() || 'U'}</span>
                 )}
               </div>
             </div>
-            <div className="flex-1 space-y-4">
+            <div className="flex-1 space-y-3">
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 placeholder={t('write_comment_placeholder')}
-                className="w-full bg-transparent border-none text-white placeholder:text-neutral-500 focus:ring-0 resize-none min-h-[100px] text-lg font-medium"
+                className="w-full bg-transparent border-none text-white placeholder:text-neutral-500 focus:ring-0 resize-none min-h-[80px] text-sm"
               />
 
               {selectedMedia.length > 0 && (
-                <div className="flex flex-wrap gap-2 pb-4">
+                <div className="flex flex-wrap gap-2 pb-3">
                   {selectedMedia.map((media, idx) => (
-                    <div key={idx} className="relative group w-24 h-24 rounded-xl overflow-hidden border border-white/10">
+                    <div key={idx} className="relative group w-20 h-20 rounded-lg overflow-hidden border border-white/[0.06]">
                       <img src={media} alt="preview" className="w-full h-full object-cover" />
                       <button 
                         onClick={() => setSelectedMedia(prev => prev.filter((_, i) => i !== idx))}
-                        className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
                       >
-                        <X size={12} />
+                        <X size={10} />
                       </button>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between pt-3 border-t border-white/[0.04]">
+                <div className="flex items-center gap-1">
                   <input 
                     type="file" 
                     ref={fileInputRef}
@@ -597,41 +608,41 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
                       setUploadType('image');
                       setTimeout(() => fileInputRef.current?.click(), 0);
                     }}
-                    className="p-2 rounded-xl hover:bg-white/10 text-neutral-400 transition-all" 
+                    className="p-1.5 rounded-lg hover:bg-white/[0.06] text-neutral-400 transition-colors" 
                     title="Add Image"
                   >
-                    <ImageIcon size={20} />
+                    <ImageIcon size={16} />
                   </button>
                   <button 
                     onClick={() => {
                       setUploadType('gif');
                       setTimeout(() => fileInputRef.current?.click(), 0);
                     }}
-                    className="p-2 rounded-xl hover:bg-white/10 text-neutral-400 transition-all" 
+                    className="p-1.5 rounded-lg hover:bg-white/[0.06] text-neutral-400 transition-colors" 
                     title="Add GIF"
                   >
-                    <Film size={20} />
+                    <Film size={16} />
                   </button>
                   <button 
                     onClick={() => {
                       const url = prompt(language === 'ar' ? 'أدخل رابط يوتيوب:' : 'Enter YouTube URL:');
                       if (url) setNewComment(prev => prev + `\n${url}`);
                     }}
-                    className="p-2 rounded-xl hover:bg-white/10 text-neutral-400 transition-all" 
+                    className="p-1.5 rounded-lg hover:bg-white/[0.06] text-neutral-400 transition-colors" 
                     title="Add YouTube Video"
                   >
-                    <Youtube size={20} />
+                    <Youtube size={16} />
                   </button>
-                  <button className="p-2 rounded-xl hover:bg-white/10 text-neutral-400 transition-all" title="Markdown Support">
-                    <Award size={20} />
+                  <button className="p-1.5 rounded-lg hover:bg-white/[0.06] text-neutral-400 transition-colors" title="Markdown Support">
+                    <Award size={16} />
                   </button>
                 </div>
                 <button 
                   onClick={() => handleSubmit()}
                   disabled={!newComment.trim()}
-                  className="bg-white text-black px-8 py-3 rounded-2xl font-black hover:bg-neutral-200 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                  className="bg-white text-black px-5 py-2 rounded-lg font-bold hover:bg-neutral-200 transition-colors disabled:opacity-50 flex items-center gap-1.5 text-xs"
                 >
-                  <Send size={18} />
+                  <Send size={14} />
                   {t('post_comment')}
                 </button>
               </div>

@@ -94,3 +94,91 @@ export async function getImageDimensions(imageDir: string): Promise<Map<string, 
   
   return dims;
 }
+
+/**
+ * Stitch images vertically into seamless long strips.
+ * Groups images into strips of `groupSize` and merges them top-to-bottom
+ * with no gaps. All images are resized to the same width before stitching.
+ * This eliminates black lines between pages in the reader.
+ */
+export async function stitchVertical(
+  inputDir: string,
+  outputDir: string,
+  groupSize = 5,
+  targetWidth = 800,
+  quality = 88
+): Promise<string[]> {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  const files = fs.readdirSync(inputDir)
+    .filter(f => imageExts.includes(path.extname(f).toLowerCase()) && !f.startsWith('.'))
+    .sort((a, b) => {
+      const numA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+      const numB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+      return numA - numB;
+    });
+
+  if (files.length === 0) return [];
+
+  const results: string[] = [];
+  const groups: string[][] = [];
+
+  for (let i = 0; i < files.length; i += groupSize) {
+    groups.push(files.slice(i, i + groupSize));
+  }
+
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g];
+
+    // Resize all images to the same width and get their buffers + heights
+    const resizedBuffers: { buffer: Buffer; width: number; height: number }[] = [];
+
+    for (const fname of group) {
+      const inputPath = path.join(inputDir, fname);
+      const resized = sharp(inputPath).resize(targetWidth, null, { fit: 'inside', withoutEnlargement: false });
+      const meta = await resized.toBuffer({ resolveWithObject: true });
+      resizedBuffers.push({
+        buffer: meta.data,
+        width: meta.info.width,
+        height: meta.info.height
+      });
+    }
+
+    if (resizedBuffers.length === 1) {
+      const outName = `${String(g + 1).padStart(3, '0')}.webp`;
+      const outPath = path.join(outputDir, outName);
+      await sharp(resizedBuffers[0].buffer).webp({ quality }).toFile(outPath);
+      results.push(outName);
+      continue;
+    }
+
+    const totalHeight = resizedBuffers.reduce((sum, img) => sum + img.height, 0);
+    const width = resizedBuffers[0].width;
+
+    const composites: { input: Buffer; top: number; left: number }[] = [];
+    let currentY = 0;
+    for (const img of resizedBuffers) {
+      composites.push({ input: img.buffer, top: currentY, left: 0 });
+      currentY += img.height;
+    }
+
+    const outName = `${String(g + 1).padStart(3, '0')}.webp`;
+    const outPath = path.join(outputDir, outName);
+
+    await sharp({
+      create: {
+        width,
+        height: totalHeight,
+        channels: 3,
+        background: { r: 0, g: 0, b: 0 }
+      }
+    })
+      .composite(composites)
+      .webp({ quality })
+      .toFile(outPath);
+
+    results.push(outName);
+  }
+
+  return results;
+}

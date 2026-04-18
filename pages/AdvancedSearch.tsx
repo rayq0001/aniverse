@@ -1,11 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import React, { useState, useMemo } from 'react';
 import ManhwaCard from '../components/ManhwaCard';
 import { Genre, GenreEn } from '../types';
-import { Search, User, RotateCcw, Paintbrush, ChevronDown, ChevronUp, Tags } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Search, User, Paintbrush, ChevronDown, Tags } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useManhwas } from '../contexts/ManhwaContext';
 
 const AdvancedSearch: React.FC = () => {
   const { t, language } = useLanguage();
@@ -16,17 +15,7 @@ const AdvancedSearch: React.FC = () => {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [isGenreExpanded, setIsGenreExpanded] = useState(true);
-  const [manhwas, setManhwas] = useState<any[]>([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'manhwas'), (snap) => {
-      const fetchedManhwas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setManhwas(fetchedManhwas);
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'manhwas');
-    });
-    return () => unsub();
-  }, []);
+  const { manhwas } = useManhwas();
 
   // Dynamic genres: combine static Genre enum with genres from all manhwas
   const genresList = useMemo(() => {
@@ -102,135 +91,150 @@ const AdvancedSearch: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in duration-700 pb-20">
-      <div className="flex flex-col items-center text-center space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl md:text-7xl font-black tracking-tighter bg-gradient-to-b from-white to-neutral-500 bg-clip-text text-transparent">
-            {t('advanced_search_title')}
-          </h1>
-          <p className="text-neutral-500 max-w-xl font-bold text-sm md:text-base">
-            {t('advanced_search_subtitle')}
-          </p>
-        </div>
+    <div className="min-h-screen pb-24">
+      {/* Header */}
+      <div className="max-w-5xl mx-auto pt-4 md:pt-8 pb-6">
+        <div className="flex flex-col items-center text-center space-y-4">
+          <h1 className="text-2xl md:text-3xl font-bold">{t('advanced_search_title')}</h1>
+          <p className="text-neutral-500 max-w-md text-xs md:text-sm">{t('advanced_search_subtitle')}</p>
 
-        {/* Simplified Search Bar */}
-        <div className="w-full max-w-3xl bg-neutral-900/50 p-2 rounded-[2rem] border border-white/5 shadow-2xl flex items-center group transition-all focus-within:ring-4 focus-within:ring-white/5 backdrop-blur-xl">
-          <div className="p-4 text-neutral-500 group-focus-within:text-white transition-colors">
-            <Search size={24} />
+          {/* Search Bar */}
+          <div className="w-full max-w-2xl relative">
+            <div className="flex items-center bg-white/[0.03] rounded-xl border border-white/[0.06] focus-within:border-white/[0.12] transition-colors overflow-hidden">
+              <Search size={16} className="ms-3.5 text-neutral-600 shrink-0" />
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('search_keyword_placeholder')}
+                className="flex-1 bg-transparent border-none focus:outline-none px-3 py-3 text-sm text-white placeholder:text-neutral-600"
+              />
+              {(searchQuery || authorQuery || artistQuery || descQuery || selectedGenres.length > 0 || selectedStatus) && (
+                <button onClick={clearAll} className="px-3 py-1.5 me-2 text-[10px] font-bold text-neutral-500 hover:text-red-400 bg-white/[0.03] hover:bg-red-500/10 rounded-md transition-colors">{t('reset')}</button>
+              )}
+            </div>
           </div>
-          <input 
-            type="text" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('search_keyword_placeholder')}
-            className="flex-1 bg-transparent border-none focus:outline-none py-4 text-xl font-black text-white placeholder:text-neutral-700"
-          />
-          <button 
-            onClick={clearAll}
-            className="p-4 text-neutral-500 hover:text-white transition-colors"
-            title={t('reset')}
-          >
-            <RotateCcw size={20} />
-          </button>
         </div>
       </div>
 
-      {/* Simplified Filters Row */}
-      <div className="bg-neutral-950/50 border border-white/5 rounded-[2.5rem] p-6 md:p-8 backdrop-blur-md shadow-xl">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <User size={12} /> {t('author_label')}
-            </label>
-            <input 
-              type="text" 
-              value={authorQuery}
-              onChange={(e) => setAuthorQuery(e.target.value)}
-              placeholder={t('search_author_placeholder')} 
-              className="w-full bg-black border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-white/20 transition-all text-white font-bold"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Paintbrush size={12} /> {t('artist_label')}
-            </label>
-            <input 
-              type="text" 
-              value={artistQuery}
-              onChange={(e) => setArtistQuery(e.target.value)}
-              placeholder={t('search_artist_placeholder')} 
-              className="w-full bg-black border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-white/20 transition-all text-white font-bold"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Tags size={12} /> {t('genres_label')}
-            </label>
-            <button 
-              onClick={() => setIsGenreExpanded(!isGenreExpanded)}
-              className="w-full bg-black border border-white/5 rounded-2xl px-5 py-3 text-sm flex items-center justify-between text-neutral-400 font-bold hover:border-white/20 transition-all"
-            >
-              <span>{selectedGenres.length > 0 ? `${selectedGenres.length} ${t('genres_label')}` : t('select_all')}</span>
-              {isGenreExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </button>
-          </div>
-        </div>
+      <div className="max-w-7xl mx-auto space-y-5">
+        {/* Filters */}
+        <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl overflow-hidden">
+          <div className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-500 flex items-center gap-1.5 ps-0.5">
+                  <User size={10} /> {t('author_label')}
+                </label>
+                <input 
+                  type="text" 
+                  value={authorQuery}
+                  onChange={(e) => setAuthorQuery(e.target.value)}
+                  placeholder={t('search_author_placeholder')} 
+                  className="w-full bg-black/30 border border-white/[0.04] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-white/[0.1] text-white placeholder:text-neutral-600"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-500 flex items-center gap-1.5 ps-0.5">
+                  <Paintbrush size={10} /> {t('artist_label')}
+                </label>
+                <input 
+                  type="text" 
+                  value={artistQuery}
+                  onChange={(e) => setArtistQuery(e.target.value)}
+                  placeholder={t('search_artist_placeholder')} 
+                  className="w-full bg-black/30 border border-white/[0.04] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-white/[0.1] text-white placeholder:text-neutral-600"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-500 flex items-center gap-1.5 ps-0.5">
+                  <Tags size={10} /> {t('genres_label')}
+                </label>
+                <button 
+                  onClick={() => setIsGenreExpanded(!isGenreExpanded)}
+                  className="w-full bg-black/30 border border-white/[0.04] rounded-lg px-3 py-2 text-xs flex items-center justify-between text-neutral-500 hover:border-white/[0.1] transition-colors"
+                >
+                  <span>{selectedGenres.length > 0 ? `${selectedGenres.length} ${t('genres_label')}` : t('select_all')}</span>
+                  <ChevronDown size={12} className={`transition-transform ${isGenreExpanded ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+            </div>
 
-        <AnimatePresence>
-          {isGenreExpanded && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden"
-            >
-              <div className="pt-8 space-y-4">
-                <div className="flex items-center gap-4 border-b border-white/5 pb-4">
-                  <button onClick={selectAllGenres} className="text-[10px] font-black text-white hover:text-neutral-400 transition-colors uppercase tracking-widest">{t('select_all')}</button>
-                  <button onClick={clearGenres} className="text-[10px] font-black text-neutral-500 hover:text-red-500 transition-colors uppercase tracking-widest">{t('clear_selection')}</button>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                  {genresList.map(genre => {
-                    const isSelected = selectedGenres.includes(genre);
-                    return (
+            {/* Status pills */}
+            <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-white/[0.03] overflow-x-auto no-scrollbar">
+              <span className="text-[10px] font-bold text-neutral-500 shrink-0 me-1">{language === 'ar' ? 'الحالة' : 'Status'}:</span>
+              {[
+                { value: null, label: language === 'ar' ? 'الكل' : 'All' },
+                { value: 'ongoing', label: language === 'ar' ? 'مستمرة' : 'Ongoing' },
+                { value: 'completed', label: language === 'ar' ? 'مكتملة' : 'Completed' },
+                { value: 'hiatus', label: language === 'ar' ? 'متوقفة' : 'Hiatus' },
+              ].map(s => (
+                <button
+                  key={String(s.value)}
+                  onClick={() => setSelectedStatus(s.value)}
+                  className={`px-3 py-1 rounded-md text-[10px] font-bold transition-colors whitespace-nowrap ${
+                    selectedStatus === s.value ? 'bg-white text-black' : 'bg-white/[0.03] text-neutral-500 hover:bg-white/[0.06]'
+                  }`}
+                >{s.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Genre expansion */}
+          <AnimatePresence>
+            {isGenreExpanded && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="overflow-hidden"
+              >
+                <div className="px-4 pb-4 border-t border-white/[0.03]">
+                  <div className="flex items-center gap-3 py-2.5">
+                    <button onClick={selectAllGenres} className="text-[10px] font-bold text-white/60 hover:text-white transition-colors">{t('select_all')}</button>
+                    <div className="w-px h-3 bg-white/[0.06]" />
+                    <button onClick={clearGenres} className="text-[10px] font-bold text-neutral-600 hover:text-red-400 transition-colors">{t('clear_selection')}</button>
+                    {selectedGenres.length > 0 && <span className="text-[10px] text-neutral-600 ms-auto">{selectedGenres.length}/{genresList.length}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {genresList.map(genre => (
                       <button 
                         key={genre}
                         onClick={() => toggleGenre(genre)}
-                        className={`flex items-center gap-2 p-3 rounded-xl transition-all border ${isSelected ? 'bg-white text-black border-white' : 'bg-white/5 border-transparent hover:bg-white/10 text-neutral-500'}`}
-                      >
-                        <span className="text-[11px] font-black truncate">
-                          {language === 'en' ? dynamicGenreEn[genre] || genre : genre}
-                        </span>
-                      </button>
-                    );
-                  })}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
+                          selectedGenres.includes(genre) ? 'bg-white text-black' : 'bg-white/[0.03] text-neutral-500 hover:bg-white/[0.06]'
+                        }`}
+                      >{language === 'en' ? dynamicGenreEn[genre] || genre : genre}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Results Section */}
-      <div className="space-y-8">
-        <div className="flex items-center justify-between px-4">
-          <h3 className="font-black text-2xl text-white tracking-tight">
-             {t('search_results')} <span className="text-neutral-500 ml-2 text-lg">({filteredManhwas.length})</span>
-          </h3>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {filteredManhwas.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 md:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {filteredManhwas.map(manhwa => (
-              <ManhwaCard key={manhwa.id} manhwa={manhwa} />
-            ))}
+        {/* Results */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2.5">
+            <h3 className="font-bold text-sm text-white">{t('search_results')}</h3>
+            <span className="text-[10px] text-neutral-500 bg-white/[0.03] px-2 py-0.5 rounded-md">{filteredManhwas.length}</span>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-40 rounded-[3rem] border-4 border-dashed border-white/5 opacity-40">
-            <Search size={80} className="mb-6 text-neutral-800" />
-            <p className="text-2xl font-black text-neutral-600">{t('no_results')}</p>
-          </div>
-        )}
+
+          {filteredManhwas.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+              {filteredManhwas.map(manhwa => (
+                <ManhwaCard key={manhwa.id} manhwa={manhwa} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 rounded-xl border border-dashed border-white/[0.06]">
+              <Search size={28} className="mb-3 text-neutral-700" />
+              <p className="text-sm font-bold text-neutral-600">{t('no_results')}</p>
+              <p className="text-[11px] text-neutral-700 mt-1">{language === 'ar' ? 'حاول تغيير الفلاتر' : 'Try adjusting your filters'}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

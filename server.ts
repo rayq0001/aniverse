@@ -9,6 +9,7 @@ import AdmZip from "adm-zip";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import crypto from "crypto";
 import { AutomationOrchestrator } from "./services/automation/orchestrator";
+import { stitchVertical } from "./services/automation/tools/sharp-compositor";
 // Google Drive folder download helper (no API key needed — scrapes public folder page)
 async function downloadDriveFolder(driveLink: string, destDir: string): Promise<string[]> {
   const folderMatch = driveLink.match(/\/folders\/([a-zA-Z0-9_-]+)/);
@@ -162,7 +163,47 @@ async function startServer() {
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
   app.use("/uploads", express.static(uploadsDir));
   
-  const upload = multer({ dest: path.join(_dirname, "temp_uploads") });
+  const upload = multer({ dest: path.join(_dirname, "temp_uploads"), limits: { fileSize: 50 * 1024 * 1024 } });
+
+  // Profile image upload endpoint
+  app.post("/api/upload-profile-image", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      const { type, userId } = req.body; // type: 'avatar' | 'banner'
+      if (!userId || !type) return res.status(400).json({ error: 'Missing userId or type' });
+
+      // Validate file type
+      const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedMimes.includes(req.file.mimetype)) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Invalid file type. Allowed: jpg, png, gif, webp' });
+      }
+
+      // Limit file size (50MB)
+      if (req.file.size > 50 * 1024 * 1024) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'File too large. Max 50MB' });
+      }
+
+      // Sanitize userId to prevent path traversal
+      const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, '');
+      const ext = path.extname(req.file.originalname) || '.jpg';
+      const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '');
+      const profileDir = path.join(uploadsDir, 'profiles', safeUserId);
+      if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
+
+      const filename = `${type}_${Date.now()}${safeExt}`;
+      const destPath = path.join(profileDir, filename);
+      fs.renameSync(req.file.path, destPath);
+
+      const imageUrl = `/uploads/profiles/${safeUserId}/${filename}`;
+      res.json({ success: true, url: imageUrl });
+    } catch (err: any) {
+      console.error('Profile image upload error:', err.message);
+      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // Initialize Google GenAI
   const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
@@ -285,7 +326,6 @@ async function startServer() {
         config: {
           temperature: 0.7,
           tools: [tools],
-          thinkingConfig: { thinkingBudget: 0 },
         },
       });
 
@@ -314,7 +354,6 @@ async function startServer() {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
-        config: { thinkingConfig: { thinkingBudget: 0 } },
       });
 
       res.json({ text: response.text || (language === "ar" ? "حدث خطأ" : "Error") });
@@ -334,7 +373,6 @@ async function startServer() {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
-        config: { thinkingConfig: { thinkingBudget: 0 } },
       });
 
       res.json({ text: response.text || "حدث خطأ" });
@@ -357,7 +395,6 @@ async function startServer() {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: { parts: [imagePart, textPart] },
-        config: { thinkingConfig: { thinkingBudget: 0 } },
       });
 
       res.json({ text: response.text || "حدث خطأ" });
@@ -378,7 +415,6 @@ async function startServer() {
             { text: JSON.stringify(list) },
           ],
         },
-        config: { thinkingConfig: { thinkingBudget: 0 } },
       });
 
       res.json(JSON.parse(response.text || "{}"));
@@ -647,10 +683,39 @@ async function startServer() {
     { name: 'zipFile', maxCount: 1 },
     { name: 'imageFiles', maxCount: 500 }
   ]), async (req, res) => {
-    const { manhwaId, chapterNumber, chapterTitle, driveLink } = req.body;
-    
-    if (!manhwaId || !chapterNumber) {
-      return res.status(400).json({ success: false, error: 'Missing manhwaId or chapterNumber' });
+    const { manhwaId, chapterNumber: rawChapterNumber, chapterTitle, driveLink, skipStitch } = req.body;
+    let chapterNumber = rawChapterNumber;
+    if (!manhwaId) {
+      return res.status(400).json({ success: false, error: 'Missing manhwaId' });
+    }
+    // If chapterNumber is missing, auto-infer next available number
+    if (!chapterNumber) {
+      // Try to get from Firestore first
+      try {
+        const admin = require('firebase-admin');
+        if (!admin.apps.length) {
+          admin.initializeApp();
+        }
+        const db = admin.firestore();
+        const chaptersSnap = await db.collection('manhwas').doc(manhwaId).collection('chapters').orderBy('number', 'desc').limit(1).get();
+        if (!chaptersSnap.empty) {
+          const lastNum = chaptersSnap.docs[0].data().number;
+          chapterNumber = String(Number(lastNum) + 1);
+        } else {
+          chapterNumber = '1';
+        }
+      } catch (err) {
+        // Fallback: check filesystem
+        const chaptersDir = path.join(uploadsDir, 'manhwas', manhwaId, 'chapters');
+        if (fs.existsSync(chaptersDir)) {
+          const dirs = fs.readdirSync(chaptersDir).filter(f => fs.statSync(path.join(chaptersDir, f)).isDirectory() && f.match(/^\d+$/));
+          const nums = dirs.map(d => parseInt(d)).filter(n => !isNaN(n));
+          const maxNum = nums.length ? Math.max(...nums) : 0;
+          chapterNumber = String(maxNum + 1);
+        } else {
+          chapterNumber = '1';
+        }
+      }
     }
 
     try {
@@ -743,6 +808,36 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'No files or drive link provided' });
       }
 
+      // Stitch images vertically into seamless strips (eliminates gaps between pages)
+      if (skipStitch !== 'true' && imageUrls.length > 1) {
+        try {
+          const rawDir = chapterDir;
+          const stitchedDir = path.join(chapterDir, '_stitched');
+          const stitchedFiles = await stitchVertical(rawDir, stitchedDir, 5, 800, 88);
+          
+          if (stitchedFiles.length > 0) {
+            // Remove original images (keep _stitched folder)
+            const origFiles = fs.readdirSync(rawDir).filter(f => 
+              f.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i) && !f.startsWith('.')
+            );
+            for (const f of origFiles) {
+              fs.unlinkSync(path.join(rawDir, f));
+            }
+            
+            // Move stitched files to chapter root
+            for (const f of stitchedFiles) {
+              fs.renameSync(path.join(stitchedDir, f), path.join(rawDir, f));
+            }
+            fs.rmSync(stitchedDir, { recursive: true, force: true });
+            
+            // Update URLs to stitched files
+            imageUrls = stitchedFiles.map(f => `/uploads/manhwas/${manhwaId}/chapters/${chapterNumber}/${f}`);
+          }
+        } catch (stitchErr: any) {
+          console.warn('Stitch warning (using original images):', stitchErr.message);
+        }
+      }
+
       // Update Firestore via orchestrator
       await orchestrator.finalizeStaffChapter(manhwaId, chapterNumber, imageUrls, {
         logs: [],
@@ -753,6 +848,109 @@ async function startServer() {
       res.json({ success: true, pages: imageUrls.length });
     } catch (err: any) {
       console.error("Quick upload error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Merge chapters endpoint
+  app.post("/api/automation/merge-chapters", express.json(), async (req, res) => {
+    const { manhwaId, sourceChapters, targetChapterNumber, targetChapterTitle } = req.body;
+
+    if (!manhwaId || !sourceChapters || !Array.isArray(sourceChapters) || sourceChapters.length < 2 || !targetChapterNumber) {
+      return res.status(400).json({ success: false, error: 'Need manhwaId, at least 2 sourceChapters, and targetChapterNumber' });
+    }
+
+    try {
+      const targetDir = path.join(uploadsDir, 'manhwas', manhwaId, 'chapters', String(targetChapterNumber));
+      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+      let allImages: string[] = [];
+      let pageIndex = 1;
+
+      // Sort source chapters numerically
+      const sortedSources = [...sourceChapters].sort((a: string, b: string) => parseFloat(a) - parseFloat(b));
+
+      for (const chapterNum of sortedSources) {
+        const srcDir = path.join(uploadsDir, 'manhwas', manhwaId, 'chapters', String(chapterNum));
+        if (!fs.existsSync(srcDir)) continue;
+
+        const files = fs.readdirSync(srcDir)
+          .filter((f: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(f))
+          .sort((a: string, b: string) => {
+            const numA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+            const numB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+            return numA - numB;
+          });
+
+        for (const file of files) {
+          const ext = path.extname(file);
+          const newName = `${String(pageIndex).padStart(3, '0')}${ext}`;
+          fs.copyFileSync(path.join(srcDir, file), path.join(targetDir, newName));
+          allImages.push(`/uploads/manhwas/${manhwaId}/chapters/${targetChapterNumber}/${newName}`);
+          pageIndex++;
+        }
+      }
+
+      if (allImages.length === 0) {
+        return res.status(400).json({ success: false, error: 'No images found in source chapters' });
+      }
+
+      // Update Firestore with merged chapter
+      await orchestrator.finalizeStaffChapter(manhwaId, String(targetChapterNumber), allImages, {
+        logs: [],
+        status: 'done',
+        progress: 100,
+      }, targetChapterTitle || `Merged ${sortedSources.join('+')}`);
+
+      res.json({ success: true, pages: allImages.length, merged: sortedSources.length });
+    } catch (err: any) {
+      console.error("Merge chapters error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Stitch existing chapter images into seamless strips
+  app.post("/api/automation/stitch-chapter", express.json(), async (req, res) => {
+    const { manhwaId, chapterNumber, groupSize, targetWidth } = req.body;
+    if (!manhwaId || !chapterNumber) {
+      return res.status(400).json({ success: false, error: 'Missing manhwaId or chapterNumber' });
+    }
+    try {
+      const chapterDir = path.join(uploadsDir, 'manhwas', manhwaId, 'chapters', String(chapterNumber));
+      if (!fs.existsSync(chapterDir)) {
+        return res.status(404).json({ success: false, error: 'Chapter directory not found' });
+      }
+
+      const stitchedDir = path.join(chapterDir, '_stitched');
+      const stitchedFiles = await stitchVertical(
+        chapterDir, stitchedDir,
+        groupSize || 5,
+        targetWidth || 800,
+        88
+      );
+
+      if (stitchedFiles.length === 0) {
+        return res.status(400).json({ success: false, error: 'No images found to stitch' });
+      }
+
+      // Remove originals, move stitched
+      const origFiles = fs.readdirSync(chapterDir).filter(f =>
+        f.match(/\.(jpg|jpeg|png|webp|gif|bmp)$/i) && !f.startsWith('.')
+      );
+      for (const f of origFiles) fs.unlinkSync(path.join(chapterDir, f));
+      for (const f of stitchedFiles) fs.renameSync(path.join(stitchedDir, f), path.join(chapterDir, f));
+      fs.rmSync(stitchedDir, { recursive: true, force: true });
+
+      const imageUrls = stitchedFiles.map(f => `/uploads/manhwas/${manhwaId}/chapters/${chapterNumber}/${f}`);
+
+      // Update Firestore
+      await orchestrator.finalizeStaffChapter(manhwaId, String(chapterNumber), imageUrls, {
+        logs: [], status: 'done', progress: 100,
+      });
+
+      res.json({ success: true, pages: stitchedFiles.length, stitchedFrom: origFiles.length });
+    } catch (err: any) {
+      console.error("Stitch chapter error:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   });

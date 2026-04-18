@@ -6,8 +6,8 @@ import { ChevronRight, ChevronLeft, BrainCircuit, ScanSearch, X, Loader2, Sparkl
 import { analyzeChapterAI, explainMangaPage } from '../services/geminiService';
 import { useLanguage } from '../contexts/LanguageContext';
 import CommentSection from '../components/CommentSection';
-import { doc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, onSnapshot, collection, query, orderBy, updateDoc } from 'firebase/firestore';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { toast } from 'sonner';
 
 const { useParams, Link, useNavigate } = ReactRouterDOM as any;
@@ -74,6 +74,11 @@ const Reader: React.FC = () => {
       const history = JSON.parse(localStorage.getItem('reading_history') || '[]');
       const newHistory = [{ manhwaId, chapterId, timestamp: Date.now() }, ...history.filter((h: any) => h.manhwaId !== manhwaId)];
       localStorage.setItem('reading_history', JSON.stringify(newHistory.slice(0, 50)));
+      // Sync unique manhwa IDs to Firestore
+      if (auth.currentUser) {
+        const historyIds = [...new Set(newHistory.slice(0, 50).map((h: any) => h.manhwaId))] as string[];
+        updateDoc(doc(db, 'users', auth.currentUser.uid), { readingHistory: historyIds }).catch(() => {});
+      }
 
       // Restore progress
       const savedProgress = localStorage.getItem(`reading_progress_${manhwaId}_${chapterId}`);
@@ -258,9 +263,9 @@ const Reader: React.FC = () => {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] bg-white text-black px-6 py-3 rounded-2xl font-black shadow-2xl flex items-center gap-3 border-2 border-black"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] bg-white text-black px-5 py-2.5 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2"
           >
-            <Milestone size={20} />
+            <Milestone size={16} />
             <span>{language === 'ar' ? 'تم استعادة مكان القراءة' : 'Reading progress restored'}</span>
           </motion.div>
         )}
@@ -270,96 +275,68 @@ const Reader: React.FC = () => {
             animate={{ x: 0 }}
             exit={{ x: language === 'ar' ? -400 : 400 }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className={`fixed inset-y-0 ${language === 'ar' ? 'left-0' : 'right-0'} w-full md:w-96 bg-black/95 backdrop-blur-3xl z-[100] shadow-2xl border-x border-white/5 p-8 flex flex-col`}
+            className={`fixed inset-y-0 ${language === 'ar' ? 'left-0' : 'right-0'} w-full md:w-96 bg-black/95 backdrop-blur-xl z-[100] border-x border-white/[0.06] p-6 flex flex-col`}
           >
-            <div className="flex items-center justify-between mb-10">
-              <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-neutral-400 border border-white/10">
-                    {aiType === 'summary' ? <BrainCircuit size={24} /> : <ScanSearch size={24} />}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                 <div className="w-9 h-9 bg-white/[0.06] rounded-lg flex items-center justify-center text-neutral-400">
+                    {aiType === 'summary' ? <BrainCircuit size={18} /> : <ScanSearch size={18} />}
                  </div>
                  <div>
-                    <h3 className="font-black text-xl tracking-tight">{aiType === 'summary' ? t('ai_summary_title') : t('ai_scene_analysis')}</h3>
-                    <p className="text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em]">Gemini Neural Link</p>
+                    <h3 className="font-bold text-sm">{aiType === 'summary' ? t('ai_summary_title') : t('ai_scene_analysis')}</h3>
+                    <p className="text-[10px] text-neutral-500">Gemini AI</p>
                  </div>
               </div>
-              <button onClick={() => setIsAiPanelOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
+              <button onClick={() => setIsAiPanelOpen(false)} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors"><X size={18} /></button>
             </div>
             
-            <div className="flex-1 overflow-y-auto space-y-6 no-scrollbar">
+            <div className="flex-1 overflow-y-auto no-scrollbar">
               {isAiLoading ? (
-                <div className="flex flex-col items-center justify-center h-full space-y-8">
-                  <div className="relative">
-                     <div className="w-24 h-24 border-4 border-white/5 border-t-white rounded-full animate-spin"></div>
-                     <Sparkles className="absolute inset-0 m-auto text-neutral-400 animate-pulse" size={40} />
-                  </div>
-                  <div className="text-center space-y-2">
-                    <p className="text-white font-black tracking-tight">{t('ai_analyzing_data')}</p>
-                    <p className="text-neutral-500 text-[10px] font-black uppercase tracking-widest">Processing Neural Nodes</p>
-                  </div>
+                <div className="flex flex-col items-center justify-center h-full space-y-4">
+                  <Loader2 className="animate-spin text-neutral-400" size={32} />
+                  <p className="text-neutral-500 text-sm">{t('ai_analyzing_data')}</p>
                 </div>
               ) : (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white/5 p-6 rounded-3xl border border-white/5"
-                >
-                  <p className="whitespace-pre-wrap text-neutral-200 font-medium leading-relaxed text-lg">{aiContent}</p>
-                </motion.div>
+                <div className="bg-white/[0.03] p-5 rounded-xl border border-white/[0.04]">
+                  <p className="whitespace-pre-wrap text-neutral-300 text-sm leading-relaxed">{aiContent}</p>
+                </div>
               )}
             </div>
             
-            <div className="mt-8 p-5 bg-white/5 rounded-2xl border border-white/5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                <span className="text-[11px] text-neutral-400 font-black uppercase tracking-widest">{t('ai_powered_by')}</span>
+            <div className="mt-4 p-3 bg-white/[0.03] rounded-lg flex items-center justify-between text-[11px] text-neutral-500">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                <span>{t('ai_powered_by')}</span>
               </div>
-              <span className="text-[10px] font-black text-white">v3.1 Pro</span>
+              <span className="font-bold text-neutral-400">v3.1 Pro</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <nav className={`fixed top-0 left-0 right-0 z-[70] transition-all duration-500 border-b border-white/5 bg-black/80 backdrop-blur-xl ${showControls ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
+      <nav className={`fixed top-0 left-0 right-0 z-[70] transition-all duration-300 border-b border-white/[0.06] bg-black/90 backdrop-blur-xl ${showControls ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
         {/* Progress Bar */}
-        <div className="absolute bottom-0 left-0 h-[3px] bg-gradient-to-r from-neutral-800 via-white to-neutral-800 transition-all duration-200 shadow-[0_0_10px_rgba(255,255,255,0.3)]" style={{ width: `${readingProgress}%` }}></div>
+        <div className="absolute bottom-0 left-0 h-[2px] bg-white/80 transition-all duration-200" style={{ width: `${readingProgress}%` }}></div>
         
-        <div className="max-w-7xl mx-auto px-3 md:px-6 py-2 md:py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 md:gap-6">
-            <Link to={`/details/${manhwa.id}`} className="p-1.5 md:p-2 hover:bg-white/10 rounded-full transition-colors">
-              <ChevronRight size={20} className={language === 'ar' ? '' : 'rotate-180'} />
+        <div className="max-w-7xl mx-auto px-3 md:px-6 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-3 md:gap-4 min-w-0">
+            <Link to={`/details/${manhwa.id}`} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0">
+              <ChevronRight size={18} className={language === 'ar' ? '' : 'rotate-180'} />
             </Link>
-            <div className="space-y-0.5">
-              <h1 className="font-black text-[10px] sm:text-sm md:text-xl line-clamp-1 max-w-[100px] sm:max-w-[200px] md:max-w-none">{displayTitle}</h1>
-              <span className="text-[8px] md:text-xs font-bold text-neutral-400">{t('chapter')} {loadedChapters[0].number}</span>
+            <div className="min-w-0">
+              <h1 className="font-bold text-xs md:text-sm line-clamp-1">{displayTitle}</h1>
+              <span className="text-[10px] text-neutral-500">{t('chapter')} {loadedChapters[0].number}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 md:gap-3">
-            <button 
-              onClick={() => setIsQuickNavOpen(!isQuickNavOpen)}
-              className="p-1.5 md:p-2 hover:bg-white/10 rounded-xl transition-colors text-neutral-400"
-              title={t('chapters')}
-            >
-              <List size={18} />
-            </button>
-            <button 
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 md:p-2 hover:bg-white/10 rounded-xl transition-colors text-neutral-400"
-              title={t('settings')}
-            >
-              <Settings size={18} />
-            </button>
-            <button 
-              onClick={handleChapterAI}
-              className="flex items-center gap-1 px-2 py-1.5 md:px-4 md:py-2.5 rounded-lg md:rounded-2xl bg-white/5 text-neutral-400 border border-white/10 hover:bg-white hover:text-black transition-all group font-black text-[9px] md:text-xs"
-            >
+          <div className="flex items-center gap-1 md:gap-2">
+            <button onClick={() => setIsQuickNavOpen(!isQuickNavOpen)} className="p-1.5 md:p-2 hover:bg-white/[0.06] rounded-lg transition-colors text-neutral-400"><List size={16} /></button>
+            <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 md:p-2 hover:bg-white/[0.06] rounded-lg transition-colors text-neutral-400"><Settings size={16} /></button>
+            <button onClick={handleChapterAI} className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg bg-white/[0.04] text-neutral-400 border border-white/[0.06] hover:bg-white hover:text-black transition-colors text-[10px] md:text-xs font-bold">
               <BrainCircuit size={14} />
               <span className="hidden sm:inline">{t('ai_summary_btn')}</span>
             </button>
-            <button 
-              onClick={handlePageAnalysis}
-              className="flex items-center gap-1 px-2 py-1.5 md:px-4 md:py-2.5 rounded-lg md:rounded-2xl bg-white/5 text-neutral-400 border border-white/10 hover:bg-white hover:text-black transition-all group font-black text-[9px] md:text-xs"
-            >
+            <button onClick={handlePageAnalysis} className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg bg-white/[0.04] text-neutral-400 border border-white/[0.06] hover:bg-white hover:text-black transition-colors text-[10px] md:text-xs font-bold">
               <ScanSearch size={14} />
               <span className="hidden sm:inline">{t('ai_analysis_btn')}</span>
             </button>
@@ -379,11 +356,11 @@ const Reader: React.FC = () => {
                 </div>
               )}
               {ch.images && ch.images.map((page: string, idx: number) => (
-                <img key={`${ch.id}-${idx}`} src={page} alt={`Page ${idx + 1}`} className="w-full h-auto block select-none border-b border-white/5" loading="lazy" />
+                <img key={`${ch.id}-${idx}`} src={page} alt={`Page ${idx + 1}`} className="w-full h-auto block select-none" style={{ marginTop: idx > 0 ? '-1px' : 0 }} loading={idx < 3 ? 'eager' : 'lazy'} draggable={false} />
               ))}
               {/* Fallback for mock data which uses 'pages' */}
               {ch.pages && !ch.images && ch.pages.map((page: string, idx: number) => (
-                <img key={`${ch.id}-${idx}`} src={page} alt={`Page ${idx + 1}`} className="w-full h-auto block select-none border-b border-white/5" loading="lazy" />
+                <img key={`${ch.id}-${idx}`} src={page} alt={`Page ${idx + 1}`} className="w-full h-auto block select-none" style={{ marginTop: idx > 0 ? '-1px' : 0 }} loading={idx < 3 ? 'eager' : 'lazy'} draggable={false} />
               ))}
             </React.Fragment>
           ))}
@@ -401,13 +378,13 @@ const Reader: React.FC = () => {
 
         {/* Chapter Navigation Buttons (Only if not continuous or at the end) */}
         {!continuousReading && (
-          <div className="w-full max-w-2xl px-4 mt-12 flex items-center justify-between gap-4">
+          <div className="w-full max-w-2xl px-4 mt-10 flex items-center justify-between gap-3">
              {currentChapterIndex > 0 ? (
                <button 
                  onClick={() => navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`)}
-                 className="flex-1 flex items-center justify-center gap-2 py-4 bg-neutral-900 hover:bg-neutral-800 rounded-2xl border border-white/5 transition-all font-bold text-sm"
+                 className="flex-1 flex items-center justify-center gap-2 py-3 bg-white/[0.04] hover:bg-white/[0.08] rounded-xl border border-white/[0.06] transition-colors font-bold text-sm"
                >
-                 <ChevronRight className={language === 'ar' ? '' : 'rotate-180'} />
+                 <ChevronRight className={language === 'ar' ? '' : 'rotate-180'} size={16} />
                  {language === 'ar' ? 'الفصل السابق' : 'Previous Chapter'}
                </button>
              ) : <div className="flex-1"></div>}
@@ -415,10 +392,10 @@ const Reader: React.FC = () => {
              {currentChapterIndex < manhwaChapters.length - 1 ? (
                <button 
                  onClick={() => navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`)}
-                 className="flex-1 flex items-center justify-center gap-2 py-4 bg-white text-black hover:bg-neutral-200 rounded-2xl shadow-xl transition-all font-bold text-sm"
+                 className="flex-1 flex items-center justify-center gap-2 py-3 bg-white text-black hover:bg-neutral-200 rounded-xl transition-colors font-bold text-sm"
                >
                  {language === 'ar' ? 'الفصل التالي' : 'Next Chapter'}
-                 <ChevronLeft className={language === 'ar' ? '' : 'rotate-180'} />
+                 <ChevronLeft className={language === 'ar' ? '' : 'rotate-180'} size={16} />
                </button>
              ) : <div className="flex-1"></div>}
           </div>
@@ -444,16 +421,16 @@ const Reader: React.FC = () => {
               initial={{ x: language === 'ar' ? 400 : -400 }}
               animate={{ x: 0 }}
               exit={{ x: language === 'ar' ? 400 : -400 }}
-              className={`fixed inset-y-0 ${language === 'ar' ? 'right-0' : 'left-0'} w-full sm:w-80 bg-neutral-950/95 backdrop-blur-3xl border-x border-white/5 z-[100] p-6 md:p-8 flex flex-col shadow-2xl`}
+              className={`fixed inset-y-0 ${language === 'ar' ? 'right-0' : 'left-0'} w-full sm:w-80 bg-black/95 backdrop-blur-xl border-x border-white/[0.06] z-[100] p-5 flex flex-col`}
             >
-              <div className="flex items-center justify-between mb-6 md:mb-10">
+              <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h3 className="font-black text-xl md:text-2xl text-white tracking-tight">{t('chapters')}</h3>
-                  <p className="text-[9px] md:text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] mt-1">{manhwaChapters.length} {language === 'ar' ? 'فصل متاح' : 'Chapters Available'}</p>
+                  <h3 className="font-bold text-sm text-white">{t('chapters')}</h3>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">{manhwaChapters.length} {language === 'ar' ? 'فصل متاح' : 'Chapters Available'}</p>
                 </div>
-                <button onClick={() => setIsQuickNavOpen(false)} className="p-2 hover:bg-white/5 rounded-full text-neutral-500 transition-colors"><X size={20} /></button>
+                <button onClick={() => setIsQuickNavOpen(false)} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-500 transition-colors"><X size={18} /></button>
               </div>
-              <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 md:space-y-3">
+              <div className="flex-1 overflow-y-auto no-scrollbar space-y-1.5">
                 {manhwaChapters.map((c, idx) => (
                   <button
                     key={c.id}
@@ -461,16 +438,16 @@ const Reader: React.FC = () => {
                       navigate(`/reader/${manhwaId}/${c.id}`);
                       setIsQuickNavOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between p-4 md:p-5 rounded-xl md:rounded-[1.5rem] border transition-all group ${c.id === chapterId ? 'bg-white text-black border-white shadow-xl shadow-white/10' : 'bg-white/5 border-white/5 hover:border-white/20 text-neutral-400 hover:text-white'}`}
+                    className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors group ${c.id === chapterId ? 'bg-white text-black border-white' : 'bg-white/[0.03] border-white/[0.04] hover:border-white/[0.1] text-neutral-400 hover:text-white'}`}
                   >
-                    <div className="flex items-center gap-3 md:gap-4">
-                      <span className={`text-[10px] md:text-xs font-black w-5 h-5 md:w-6 md:h-6 rounded-lg flex items-center justify-center ${c.id === chapterId ? 'bg-black text-white' : 'bg-white/10 text-neutral-500'}`}>{idx + 1}</span>
-                      <span className="font-black text-xs md:text-sm">{t('chapter')} {c.number}</span>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-[10px] font-bold w-5 h-5 rounded flex items-center justify-center ${c.id === chapterId ? 'bg-black text-white' : 'bg-white/[0.06] text-neutral-500'}`}>{idx + 1}</span>
+                      <span className="font-bold text-xs">{t('chapter')} {c.number}</span>
                     </div>
                     {c.id === chapterId ? (
-                      <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-black rounded-full"></div>
+                      <div className="w-1.5 h-1.5 bg-black rounded-full"></div>
                     ) : (
-                      <ChevronRight size={14} className={`opacity-0 group-hover:opacity-100 transition-all ${language === 'ar' ? 'rotate-180' : ''}`} />
+                      <ChevronRight size={12} className={`opacity-0 group-hover:opacity-100 transition-opacity ${language === 'ar' ? 'rotate-180' : ''}`} />
                     )}
                   </button>
                 ))}
@@ -496,46 +473,43 @@ const Reader: React.FC = () => {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-neutral-950 border-t border-white/10 rounded-t-3xl z-[120] shadow-2xl max-h-[70vh] overflow-y-auto"
+              className="fixed bottom-0 left-0 right-0 bg-black border-t border-white/[0.06] rounded-t-2xl z-[120] max-h-[70vh] overflow-y-auto"
             >
-              {/* Handle bar */}
               <div className="flex justify-center pt-3 pb-1">
-                <div className="w-10 h-1 rounded-full bg-neutral-700" />
+                <div className="w-8 h-1 rounded-full bg-neutral-700" />
               </div>
 
-              <div className="px-6 pb-8 pt-2">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2.5">
-                    <Settings size={18} className="text-neutral-400" />
-                    <h3 className="font-black text-lg text-white">{t('settings')}</h3>
+              <div className="px-5 pb-6 pt-2">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Settings size={16} className="text-neutral-400" />
+                    <h3 className="font-bold text-sm text-white">{t('settings')}</h3>
                   </div>
-                  <button onClick={() => setIsSettingsOpen(false)} className="p-1.5 hover:bg-white/5 rounded-full text-neutral-500 transition-colors"><X size={18} /></button>
+                  <button onClick={() => setIsSettingsOpen(false)} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-500 transition-colors"><X size={16} /></button>
                 </div>
 
                 <div className="space-y-3">
                   {/* Continuous Reading */}
                   <button 
                     onClick={toggleContinuousReading}
-                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all duration-300 ${
-                      continuousReading 
-                        ? 'bg-white/[0.06] border-white/15' 
-                        : 'bg-neutral-900/50 border-neutral-800/50 hover:bg-neutral-900'
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-colors ${
+                      continuousReading ? 'bg-white/[0.06] border-white/[0.1]' : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04]'
                     }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 ${
-                      continuousReading ? 'bg-white text-black' : 'bg-neutral-800 text-neutral-400'
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      continuousReading ? 'bg-white text-black' : 'bg-white/[0.06] text-neutral-400'
                     }`}>
-                      <Infinity size={18} />
+                      <Infinity size={16} />
                     </div>
                     <div className={`flex-1 text-${language === 'ar' ? 'right' : 'left'}`}>
-                      <span className="block font-bold text-white text-sm">{language === 'ar' ? 'القراءة المستمرة' : 'Continuous Reading'}</span>
-                      <span className="text-[11px] text-neutral-500">{language === 'ar' ? 'تحميل الفصول تلقائياً عند التمرير' : 'Auto-load chapters on scroll'}</span>
+                      <span className="block font-bold text-white text-xs">{language === 'ar' ? 'القراءة المستمرة' : 'Continuous Reading'}</span>
+                      <span className="text-[10px] text-neutral-500">{language === 'ar' ? 'تحميل الفصول تلقائياً عند التمرير' : 'Auto-load chapters on scroll'}</span>
                     </div>
-                    <div className={`w-11 h-6 rounded-full relative transition-all duration-300 shrink-0 ${continuousReading ? 'bg-white' : 'bg-neutral-800'}`}>
+                    <div className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${continuousReading ? 'bg-white' : 'bg-neutral-800'}`}>
                       <motion.div 
-                        animate={{ x: continuousReading ? 22 : 3 }}
+                        animate={{ x: continuousReading ? 20 : 2 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className={`absolute top-1 w-4 h-4 rounded-full shadow-md ${continuousReading ? 'bg-black' : 'bg-neutral-500'}`}
+                        className={`absolute top-0.5 w-4 h-4 rounded-full ${continuousReading ? 'bg-black' : 'bg-neutral-500'}`}
                       />
                     </div>
                   </button>
@@ -543,54 +517,52 @@ const Reader: React.FC = () => {
                   {/* Fast Mode */}
                   <button 
                     onClick={toggleFastReading}
-                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all duration-300 ${
-                      fastReading 
-                        ? 'bg-white/[0.06] border-white/15' 
-                        : 'bg-neutral-900/50 border-neutral-800/50 hover:bg-neutral-900'
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-colors ${
+                      fastReading ? 'bg-white/[0.06] border-white/[0.1]' : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04]'
                     }`}
                   >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 ${
-                      fastReading ? 'bg-white text-black' : 'bg-neutral-800 text-neutral-400'
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      fastReading ? 'bg-white text-black' : 'bg-white/[0.06] text-neutral-400'
                     }`}>
-                      <Zap size={18} />
+                      <Zap size={16} />
                     </div>
                     <div className={`flex-1 text-${language === 'ar' ? 'right' : 'left'}`}>
-                      <span className="block font-bold text-white text-sm">{language === 'ar' ? 'وضع القراءة السريع' : 'Fast Mode'}</span>
-                      <span className="text-[11px] text-neutral-500">{language === 'ar' ? 'تحميل الصور مسبقاً' : 'Preload images'}</span>
+                      <span className="block font-bold text-white text-xs">{language === 'ar' ? 'وضع القراءة السريع' : 'Fast Mode'}</span>
+                      <span className="text-[10px] text-neutral-500">{language === 'ar' ? 'تحميل الصور مسبقاً' : 'Preload images'}</span>
                     </div>
-                    <div className={`w-11 h-6 rounded-full relative transition-all duration-300 shrink-0 ${fastReading ? 'bg-white' : 'bg-neutral-800'}`}>
+                    <div className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${fastReading ? 'bg-white' : 'bg-neutral-800'}`}>
                       <motion.div 
-                        animate={{ x: fastReading ? 22 : 3 }}
+                        animate={{ x: fastReading ? 20 : 2 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className={`absolute top-1 w-4 h-4 rounded-full shadow-md ${fastReading ? 'bg-black' : 'bg-neutral-500'}`}
+                        className={`absolute top-0.5 w-4 h-4 rounded-full ${fastReading ? 'bg-black' : 'bg-neutral-500'}`}
                       />
                     </div>
                   </button>
 
                   {/* Zoom */}
-                  <div className="p-4 rounded-2xl bg-neutral-900/50 border border-neutral-800/50">
-                    <div className="flex items-center gap-4 mb-3">
-                      <div className="w-10 h-10 rounded-xl bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-400">
-                        <ZoomIn size={18} />
+                  <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-8 h-8 rounded-lg bg-white/[0.06] flex items-center justify-center shrink-0 text-neutral-400">
+                        <ZoomIn size={16} />
                       </div>
                       <div className={`flex-1 text-${language === 'ar' ? 'right' : 'left'}`}>
-                        <span className="block font-bold text-white text-sm">{language === 'ar' ? 'التكبير' : 'Zoom'}</span>
+                        <span className="block font-bold text-white text-xs">{language === 'ar' ? 'التكبير' : 'Zoom'}</span>
                       </div>
-                      <span className="text-sm font-black text-white tabular-nums">{zoom}%</span>
+                      <span className="text-xs font-bold text-white tabular-nums">{zoom}%</span>
                     </div>
                     <div className="flex items-center gap-3 px-1">
                       <button onClick={() => setZoom(z => Math.max(z - 10, 50))} className="text-neutral-400 hover:text-white transition-colors">
-                        <ChevronLeft size={16} />
+                        <ChevronLeft size={14} />
                       </button>
                       <input 
                         type="range" 
                         min={50} max={100} step={5} 
                         value={zoom} 
                         onChange={e => setZoom(Number(e.target.value))}
-                        className="flex-1 h-1 bg-neutral-800 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+                        className="flex-1 h-1 bg-neutral-800 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                       />
                       <button onClick={() => setZoom(z => Math.min(z + 10, 100))} className="text-neutral-400 hover:text-white transition-colors">
-                        <ChevronRight size={16} />
+                        <ChevronRight size={14} />
                       </button>
                     </div>
                   </div>
@@ -601,29 +573,17 @@ const Reader: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <div className={`fixed bottom-4 md:bottom-6 right-1/2 translate-x-1/2 z-[70] flex items-center gap-2 md:gap-4 px-3 md:px-6 py-2 md:py-3 bg-neutral-900/90 backdrop-blur-2xl rounded-xl md:rounded-3xl border border-white/5 shadow-2xl transition-all duration-500 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0'}`}>
-         <button 
-          onClick={() => setZoom(z => Math.max(z - 10, 50))}
-          className="p-1 md:p-2 hover:bg-white/5 rounded-lg md:rounded-xl text-neutral-400 hover:text-white"
-         >
-           <ChevronLeft className="rotate-90" size={18} />
+      <div className={`fixed bottom-4 right-1/2 translate-x-1/2 z-[70] flex items-center gap-1.5 px-3 py-2 bg-black/90 backdrop-blur-xl rounded-xl border border-white/[0.06] transition-all duration-300 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
+         <button onClick={() => setZoom(z => Math.max(z - 10, 50))} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-400 hover:text-white transition-colors">
+           <ChevronLeft className="rotate-90" size={14} />
          </button>
-         <span className="text-[9px] md:text-xs font-black w-8 md:w-12 text-center text-neutral-400">{zoom}%</span>
-         <button 
-          onClick={() => setZoom(z => Math.min(z + 10, 100))}
-          className="p-1 md:p-2 hover:bg-white/5 rounded-lg md:rounded-xl text-neutral-400 hover:text-white"
-         >
-           <ChevronRight className="-rotate-90" size={18} />
+         <span className="text-[10px] font-bold w-8 text-center text-neutral-400 tabular-nums">{zoom}%</span>
+         <button onClick={() => setZoom(z => Math.min(z + 10, 100))} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-400 hover:text-white transition-colors">
+           <ChevronRight className="-rotate-90" size={14} />
          </button>
-         
-         <div className="w-[1px] h-3 md:h-4 bg-white/10 mx-1 md:mx-2"></div>
-         
-         <button 
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="p-1 md:p-2 hover:bg-white/5 rounded-lg md:rounded-xl text-neutral-400 hover:text-white"
-          title={language === 'ar' ? 'للأعلى' : 'Back to Top'}
-         >
-           <ArrowUp size={16} />
+         <div className="w-px h-3 bg-white/[0.06] mx-1"></div>
+         <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-400 hover:text-white transition-colors">
+           <ArrowUp size={14} />
          </button>
       </div>
     </div>

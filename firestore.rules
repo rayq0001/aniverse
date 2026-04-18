@@ -34,8 +34,15 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-         (request.auth.token.email == "alitabash0@gmail.com"));
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'founder']) ||
+         (request.auth.token.email == "me.rayq0001@gmail.com"));
+    }
+
+    function isStaffOrAbove() {
+      return isAuthenticated() && 
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['founder', 'admin', 'moderator', 'analyst', 'staff_plus', 'staff']) ||
+         (request.auth.token.email == "me.rayq0001@gmail.com"));
     }
 
     function isBanned() {
@@ -52,6 +59,7 @@ service cloud.firestore {
       return img is string && (
         img == "" ||
         img.matches("^https?://.*") || 
+        img.matches("^/uploads/.*") ||
         img.matches("^data:image/.*;base64,.*")
       ) && img.size() < 2000000;
     }
@@ -62,16 +70,18 @@ service cloud.firestore {
 
     // Domain Validator for User
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'avatarUrl', 'bannerUrl', 'bio', 'role', 'badges', 'isBanned', 'createdAt']) &&
-             data.uid == request.auth.uid &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'avatarUrl', 'bannerUrl', 'bio', 'role', 'badges', 'isBanned', 'isPrivate', 'favorites', 'readingHistory', 'createdAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
              isValidEmail(data.email) &&
              (!('avatarUrl' in data) || isValidImage(data.avatarUrl)) &&
              (!('bannerUrl' in data) || isValidImage(data.bannerUrl)) &&
              (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
-             data.role in ['user', 'staff', 'staff_plus', 'moderator', 'analyst', 'admin'] &&
+             data.role in ['user', 'staff', 'staff_plus', 'moderator', 'analyst', 'admin', 'founder'] &&
              (!('badges' in data) || data.badges is list) &&
              (!('isBanned' in data) || data.isBanned is bool) &&
+             (!('isPrivate' in data) || data.isPrivate is bool) &&
+             (!('favorites' in data) || data.favorites is list) &&
+             (!('readingHistory' in data) || data.readingHistory is list) &&
              data.createdAt is timestamp;
     }
 
@@ -92,12 +102,14 @@ service cloud.firestore {
 
     // User Collection Rules
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'user' || isAdmin());
+      allow read: if true;
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.uid == request.auth.uid && (request.resource.data.role == 'user' || isAdmin());
       allow update: if (isOwner(userId) || isAdmin()) && 
                       isValidUser(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid &&
                       (isAdmin() || (request.resource.data.role == resource.data.role && request.resource.data.isBanned == resource.data.isBanned)) &&
-                      request.resource.data.createdAt == resource.data.createdAt;
+                      request.resource.data.createdAt == resource.data.createdAt &&
+                      (isAdmin() || !('isPrivate' in resource.data) || request.resource.data.get('isPrivate', false) is bool);
       allow delete: if isAdmin();
     }
 
@@ -160,6 +172,12 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // Presence Collection Rules
+    match /presence/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
     }
 
     // Default deny

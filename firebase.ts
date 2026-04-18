@@ -1,15 +1,72 @@
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from 'firebase/auth';
+import { getFirestore, doc, getDocFromServer, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from './firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(console.error);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// ─── Presence System ───
+const HEARTBEAT_INTERVAL = 60_000; // 1 minute
+const ONLINE_THRESHOLD = 2 * 60_000; // 2 minutes — if no heartbeat in 2min, consider offline
+
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+async function sendHeartbeat() {
+  if (!auth.currentUser) return;
+  try {
+    await setDoc(doc(db, 'presence', auth.currentUser.uid), {
+      lastSeen: serverTimestamp(),
+      isOnline: true
+    });
+  } catch { /* silent */ }
+}
+
+async function markOffline() {
+  if (!auth.currentUser) return;
+  try {
+    await setDoc(doc(db, 'presence', auth.currentUser.uid), {
+      lastSeen: serverTimestamp(),
+      isOnline: false
+    });
+  } catch { /* silent */ }
+}
+
+export function startPresence() {
+  if (heartbeatTimer) return;
+  sendHeartbeat();
+  heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+
+  window.addEventListener('beforeunload', markOffline);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') markOffline();
+    else sendHeartbeat();
+  });
+}
+
+export function stopPresence() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  markOffline();
+}
+
+/** Subscribe to a user's online status. Returns unsubscribe function. */
+export function onPresenceChange(uid: string, callback: (online: boolean) => void): () => void {
+  return onSnapshot(doc(db, 'presence', uid), (snap) => {
+    if (!snap.exists()) { callback(false); return; }
+    const data = snap.data();
+    if (!data.isOnline) { callback(false); return; }
+    const lastSeen = data.lastSeen?.toMillis?.() || 0;
+    callback(Date.now() - lastSeen < ONLINE_THRESHOLD);
+  }, () => callback(false));
+}
+
+export const ONLINE_THRESHOLD_MS = ONLINE_THRESHOLD;
 
 // Error handling helper
 export enum OperationType {
@@ -60,7 +117,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 // Test connection to Firestore
