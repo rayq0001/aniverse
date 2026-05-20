@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { Play, Bookmark, Share2, List, CheckCircle2, ArrowDownWideNarrow, ArrowUpWideNarrow, Calendar, ClipboardCheck, Star, Info, Sparkles, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { getDeepManhwaAnalysis } from '../services/geminiService';
 import { GenreEn } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -154,7 +156,7 @@ const Details: React.FC = () => {
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-2">
             {lastReadChapterId && (
               <Link
-                to={`/reader/${manhwa.id}/${lastReadChapterId}`}
+                to={`/read/${manhwa.id}/${lastReadChapterId}`}
                 className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm text-black active:scale-95 transition-transform"
                 style={{ background: 'var(--accent-color)' }}
               >
@@ -227,7 +229,9 @@ const Details: React.FC = () => {
                   <Sparkles size={13} className="text-yellow-500" />
                   <span className="text-xs font-bold text-neutral-300">{language === 'en' ? 'AI Summary' : 'تلخيص ذكي'}</span>
                 </div>
-                <p className="text-neutral-300 text-sm leading-relaxed whitespace-pre-line">{aiSummary}</p>
+                <div className="text-neutral-300 text-sm leading-relaxed markdown-body [&_strong]:font-bold [&_strong]:text-white [&_em]:italic [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:mb-1 [&_p]:mb-2 last:[&_p]:mb-0 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-[15px] [&_h3]:font-bold [&_h3]:text-white [&_h3]:mt-3 [&_h3]:mb-1">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiSummary}</ReactMarkdown>
+                </div>
               </div>
             )}
           </section>
@@ -255,7 +259,7 @@ const Details: React.FC = () => {
                 return (
                   <Link
                     key={chapter.id}
-                    to={`/reader/${manhwa.id}/${chapter.id}`}
+                    to={`/read/${manhwa.id}/${chapter.id}`}
                     className={`flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors ${isRead ? 'opacity-60' : ''}`}
                   >
                     <div className="flex items-center gap-3">
@@ -317,7 +321,7 @@ const Details: React.FC = () => {
                 <h3 className="text-sm font-bold text-neutral-400 mb-4">{t('similar_works')}</h3>
                 <div className="space-y-3">
                   {similarManhwas.map(m => (
-                    <Link key={m.id} to={`/details/${m.id}`} className="flex items-center gap-3 group">
+                    <Link key={m.id} to={`/manga/${m.id}`} className="flex items-center gap-3 group">
                       <img
                         src={m.coverImage}
                         className="w-10 h-13 object-cover rounded-md shrink-0"

@@ -42,3 +42,4 @@ services/automation/tools/naver-downloader/cache.txt
 services/automation/tools/text-bpn-plus/*.onnx*
 services/automation/tools/tseng-scans-ai/*.onnx*
 venv/
+aniverse-leans.json

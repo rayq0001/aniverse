@@ -47,10 +47,10 @@ def find_model():
 
 LAMA_SIZE = 512         # LaMa model input size
 MIN_MASK_AREA = 30      # Minimum mask pixels to process a region
-TILE_PAD = 40           # Padding around text bbox — more context = better fill
-MASK_DILATION_K = 13    # Kernel size: fully covers text halo + anti-aliased edges
-MASK_DILATION_ITER = 2  # Two passes for thorough coverage
-FEATHER_RADIUS = 7      # Larger blur radius for invisible seams
+TILE_PAD = 80           # Padding around text bbox — significantly more context = highly accurate fill
+MASK_DILATION_K = 21    # Kernel size: fully covers wide text halo + aggressive anti-aliasing removal
+MASK_DILATION_ITER = 3  # Three passes for absolute thorough coverage
+FEATHER_RADIUS = 15     # Much larger blur radius for perfectly invisible seams and professional blending
 
 
 # --------------- Face Protection (OpenCV Haar Cascade — zero deps) ---------------

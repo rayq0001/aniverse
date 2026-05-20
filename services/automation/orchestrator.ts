@@ -53,6 +53,9 @@ export interface AutomationTask {
   status: 'pending' | 'running' | 'completed' | 'error';
   logs: string[];
   progress: number;
+  driveLinks?: { raw?: string; translated?: string };
+  rawPath?: string;
+  translatedPath?: string;
 }
 
 interface PipelineInput {
@@ -63,24 +66,38 @@ interface PipelineInput {
   contentId?: string;
   startChapter?: string;
   endChapter?: string;
+  options?: {
+    scrape: boolean;
+    translate: boolean;
+  };
 }
 
 export class AutomationOrchestrator {
   private syncService: GoogleSyncService;
   private toolsPath: string;
   private tempPath: string;
-  private ai: GoogleGenAI | null;
 
   constructor() {
     this.syncService = new GoogleSyncService();
     this.toolsPath = path.join(process.cwd(), 'services', 'automation', 'tools');
     this.tempPath = path.join(process.cwd(), 'services', 'automation', 'temp');
-    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
-    this.ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-    
+
     if (!fs.existsSync(this.tempPath)) {
       fs.mkdirSync(this.tempPath, { recursive: true });
     }
+  }
+
+  private getAI(): GoogleGenAI | null {
+    try {
+      const envPath = path.join(process.cwd(), '.env');
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        const match = envContent.match(/GEMINI_API_KEY=(.*)/);
+        if (match && match[1]) return new GoogleGenAI({ apiKey: match[1].trim() });
+      }
+    } catch(e) {}
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+    return apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   private log(taskId: string, message: string, tasks: Record<string, any>) {
@@ -143,7 +160,8 @@ export class AutomationOrchestrator {
   }
 
   private async buildTranslationDocFromImages(taskId: string, imagePaths: string[], tasks: Record<string, any>) {
-    if (!this.ai || imagePaths.length === 0) return '';
+    const ai = this.getAI();
+    if (!ai || imagePaths.length === 0) return '';
 
     const maxPages = 8;
     const selected = imagePaths.slice(0, maxPages);
@@ -154,7 +172,7 @@ export class AutomationOrchestrator {
       const imgPath = selected[i];
       try {
         const base64 = fs.readFileSync(imgPath).toString('base64');
-        const response = await this.ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: {
             parts: [
@@ -165,7 +183,7 @@ export class AutomationOrchestrator {
                 },
               },
               {
-                text: 'Extract spoken text from this comic page and translate it to Arabic. Return only concise translated lines in reading order. If no text exists, return: (no dialogue).',
+                text: 'Extract spoken text (dialogue bubbles) from this comic page and translate it to Arabic. Ignore massive sound effects (SFX) and background noises. Translate accurately with context. Format exactly as concise reading lines. If no dialogue exists, return: (no dialogue).',
               },
             ],
           },
@@ -192,94 +210,129 @@ export class AutomationOrchestrator {
       this.log(taskId, `🚀 Starting full pipeline for "${seriesLabel}" Ch.${chapterLabel}`, tasks);
       tasks[taskId].status = 'running';
       
-      // 1. SCRAPE
+      const opts = data.options || { scrape: true, translate: true };
+      const modeLabel = opts.scrape && opts.translate ? 'Full Pipeline' : opts.scrape ? 'Scrape Only' : opts.translate ? 'Translate & Inpaint Only' : 'No Tasks';
+      this.log(taskId, `🚀 Starting [${modeLabel}] for "${seriesLabel}" Ch.${chapterLabel}`, tasks);
+      this.log(taskId, `⚙️ Options → Scrape: ${opts.scrape ? '✅' : '❌'} | Translate/Inpaint: ${opts.translate ? '✅' : '❌'}`, tasks);
+      tasks[taskId].status = 'running';
+
+      if (!opts.scrape && !opts.translate) {
+        this.log(taskId, `⚠️ [WARN]: No tasks selected. Finishing immediately.`, tasks);
+        tasks[taskId].status = 'completed';
+        tasks[taskId].progress = 100;
+        return;
+      }
       const stepStart1 = Date.now();
       this.log(taskId, `📂 [STEP 1]: Initiating scraper for ${data.source}...`, tasks);
       const rawPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'raw');
       if (!fs.existsSync(rawPath)) fs.mkdirSync(rawPath, { recursive: true });
       
-      await this.runTool(taskId, 'scrape', data, tasks, rawPath);
-      tasks[taskId].progress = 25;
-      this.log(taskId, `⏱️ [STEP 1] Scraping done in ${((Date.now() - stepStart1) / 1000).toFixed(1)}s`, tasks);
-
-      // 2. AI DETECTION (TextBPN++ — Tile-Based)
-      const stepStart2 = Date.now();
-      this.log(taskId, `🔍 [STEP 2]: Detecting text areas (tile-based)...`, tasks);
-      const maskPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'mask');
-      if (!fs.existsSync(maskPath)) fs.mkdirSync(maskPath, { recursive: true });
-      
-      try {
-        await this.runTool(taskId, 'detect', { ...data, input: rawPath, output: maskPath }, tasks);
-        tasks[taskId].progress = 50;
-        this.log(taskId, `⏱️ [STEP 2] Detection done in ${((Date.now() - stepStart2) / 1000).toFixed(1)}s`, tasks);
-      } catch (err: any) {
-        this.log(taskId, `⚠️ [WARNING]: AI Detection failure (${err?.message || 'unknown error'}). Falling back to original frames.`, tasks);
-        tasks[taskId].progress = 50;
+      if (opts.scrape) {
+        await this.runTool(taskId, 'scrape', data, tasks, rawPath);
+        tasks[taskId].progress = 25;
+        this.log(taskId, `⏱️ [STEP 1] Scraping done in ${((Date.now() - stepStart1) / 1000).toFixed(1)}s`, tasks);
+      } else {
+        this.log(taskId, `ℹ️ [INFO]: Scraping skipped by user.`, tasks);
       }
 
-      // 3. CLEAN & TRANSLATE (TsengScans — Tile-Based Inpainting)
-      const stepStart3 = Date.now();
-      this.log(taskId, `✨ [STEP 3]: In-painting text regions (tile-based)...`, tasks);
-      const finalPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'final');
-      if (!fs.existsSync(finalPath)) fs.mkdirSync(finalPath, { recursive: true });
-      
+      let optimizedImages = this.getImageFilesRecursive(rawPath);
       let translationResult = '';
-      try {
-        await this.runTool(taskId, 'translate', { ...data, input: rawPath, mask: maskPath, output: finalPath }, tasks);
-        tasks[taskId].progress = 70;
-        this.log(taskId, `⏱️ [STEP 3] Inpainting done in ${((Date.now() - stepStart3) / 1000).toFixed(1)}s`, tasks);
-      } catch (err: any) {
-        this.log(taskId, `⚠️ [WARNING]: AI Processing failure (${err?.message || 'unknown error'}). Using raw frames for library.`, tasks);
-        this.copyDirectoryContents(rawPath, finalPath);
-        tasks[taskId].progress = 70;
-      }
 
-      // 3.5. OPTIMIZE — Convert final images to WebP with Sharp
-      const stepStart35 = Date.now();
-      const finalImages = this.getImageFilesRecursive(finalPath);
-      let optimizedImages = finalImages;
-      try {
-        this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${finalImages.length} images with Sharp...`, tasks);
-        const webpPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'webp');
-        const webpFiles = await convertToWebP(finalPath, webpPath, 85);
-        if (webpFiles.length > 0) {
-          optimizedImages = webpFiles;
-          this.log(taskId, `⏱️ [STEP 3.5] WebP conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
+      if (opts.translate) {
+        // 2. AI DETECTION (TextBPN++ — Tile-Based)
+        const stepStart2 = Date.now();
+        this.log(taskId, `🔍 [STEP 2]: Detecting text areas (tile-based)...`, tasks);
+        const maskPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'mask');
+        if (!fs.existsSync(maskPath)) fs.mkdirSync(maskPath, { recursive: true });
+        
+        try {
+          await this.runTool(taskId, 'detect', { ...data, input: rawPath, output: maskPath }, tasks);
+          tasks[taskId].progress = 50;
+          this.log(taskId, `⏱️ [STEP 2] Detection done in ${((Date.now() - stepStart2) / 1000).toFixed(1)}s`, tasks);
+        } catch (err: any) {
+          this.log(taskId, `⚠️ [WARNING]: AI Detection failure (${err?.message || 'unknown error'}). Falling back to original frames.`, tasks);
+          tasks[taskId].progress = 50;
         }
-      } catch (err: any) {
-        this.log(taskId, `ℹ️ WebP optimization skipped (${err?.message}). Using originals.`, tasks);
-      }
-      tasks[taskId].progress = 75;
 
-      // 3.6 TRANSLATE DIALOGUE
-      try {
-        translationResult = await this.buildTranslationDocFromImages(taskId, optimizedImages, tasks);
-      } catch (err: any) {
-        this.log(taskId, `⚠️ [WARNING]: Dialogue translation skipped (${err?.message || 'unknown error'}).`, tasks);
+        // 3. CLEAN & TRANSLATE (TsengScans — Tile-Based Inpainting)
+        const stepStart3 = Date.now();
+        this.log(taskId, `✨ [STEP 3]: In-painting text regions (tile-based)...`, tasks);
+        const finalPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'final');
+        if (!fs.existsSync(finalPath)) fs.mkdirSync(finalPath, { recursive: true });
+        
+        try {
+          await this.runTool(taskId, 'translate', { ...data, input: rawPath, mask: maskPath, output: finalPath }, tasks);
+          tasks[taskId].progress = 70;
+          this.log(taskId, `⏱️ [STEP 3] Inpainting done in ${((Date.now() - stepStart3) / 1000).toFixed(1)}s`, tasks);
+        } catch (err: any) {
+          this.log(taskId, `⚠️ [WARNING]: AI Processing failure (${err?.message || 'unknown error'}). Using raw frames for library.`, tasks);
+          this.copyDirectoryContents(rawPath, finalPath);
+          tasks[taskId].progress = 70;
+        }
+
+        // 3.5. OPTIMIZE — Convert final images to WebP with Sharp
+        const stepStart35 = Date.now();
+        const finalImages = this.getImageFilesRecursive(finalPath);
+        optimizedImages = finalImages;
+        try {
+          this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${finalImages.length} images with Sharp...`, tasks);
+          const webpPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'webp');
+          const webpFiles = await convertToWebP(finalPath, webpPath, 85);
+          if (webpFiles.length > 0) {
+            optimizedImages = webpFiles;
+            this.log(taskId, `⏱️ [STEP 3.5] WebP conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
+          }
+        } catch (err: any) {
+          this.log(taskId, `ℹ️ WebP optimization skipped (${err?.message}). Using originals.`, tasks);
+        }
+        tasks[taskId].progress = 75;
+
+        // 3.6 TRANSLATE DIALOGUE
+        try {
+          translationResult = await this.buildTranslationDocFromImages(taskId, optimizedImages, tasks);
+        } catch (err: any) {
+          this.log(taskId, `⚠️ [WARNING]: Dialogue translation skipped (${err?.message || 'unknown error'}).`, tasks);
+        }
       }
 
       // 4. SYNC TO GOOGLE (Parallel uploads)
       const stepStart4 = Date.now();
       this.log(taskId, `🌐 [STEP 4]: Syncing to Cloud Storage...`, tasks);
+      const driveLinks: { raw?: string; translated?: string } = {};
+
       if (await this.syncService.isReady()) {
         const rootFolderId = await this.syncService.getOrCreateFolder('Aniverse-Automated');
         const manhwaFolderId = await this.syncService.getOrCreateFolder(seriesLabel, rootFolderId);
-        const chapterFolderId = await this.syncService.getOrCreateFolder(`Chapter-${chapterLabel}`, manhwaFolderId);
         
-        // Upload images in parallel batches of 4
-        const uploadBatchSize = 4;
-        for (let i = 0; i < optimizedImages.length; i += uploadBatchSize) {
-          const batch = optimizedImages.slice(i, i + uploadBatchSize);
-          await Promise.all(batch.map(fp => this.syncService.uploadFile(chapterFolderId, fp)));
+        // Upload RAW folder
+        const rawImages = this.getImageFilesRecursive(rawPath);
+        if (rawImages.length > 0) {
+           const rawChapterFolderId = await this.syncService.getOrCreateFolder(`RAW-${chapterLabel}`, manhwaFolderId);
+           const uploadBatchSize = 4;
+           for (let i = 0; i < rawImages.length; i += uploadBatchSize) {
+             const batch = rawImages.slice(i, i + uploadBatchSize);
+             await Promise.all(batch.map(fp => this.syncService.uploadFile(rawChapterFolderId, fp)));
+           }
+           driveLinks.raw = await this.syncService.getShareableLink(rawChapterFolderId);
         }
-        
-        if (translationResult) {
-          await this.syncService.createOrUpdateDoc(chapterFolderId, `Translation-${seriesLabel}-Ch${chapterLabel}`, translationResult);
+
+        // Upload TRANSLATED folder
+        if (opts.translate && optimizedImages.length > 0) {
+           const translatedChapterFolderId = await this.syncService.getOrCreateFolder(`TRANSLATED-${chapterLabel}`, manhwaFolderId);
+           const uploadBatchSize = 4;
+           for (let i = 0; i < optimizedImages.length; i += uploadBatchSize) {
+             const batch = optimizedImages.slice(i, i + uploadBatchSize);
+             await Promise.all(batch.map(fp => this.syncService.uploadFile(translatedChapterFolderId, fp)));
+           }
+           if (translationResult) {
+             await this.syncService.createOrUpdateDoc(translatedChapterFolderId, `Translation-${seriesLabel}-Ch${chapterLabel}`, translationResult);
+           }
+           driveLinks.translated = await this.syncService.getShareableLink(translatedChapterFolderId);
         }
         
         this.log(taskId, `⏱️ [STEP 4] Cloud sync done in ${((Date.now() - stepStart4) / 1000).toFixed(1)}s`, tasks);
       } else {
-        this.log(taskId, `ℹ️ [INFO]: Cloud Sync skipped (service-account.json not configured).`, tasks);
+        this.log(taskId, `ℹ️ [INFO]: Cloud Sync skipped (service-account.json not configured). Local ZIP fallback available.`, tasks);
       }
 
       const totalTime = ((Date.now() - pipelineStart) / 1000).toFixed(1);
@@ -287,6 +340,9 @@ export class AutomationOrchestrator {
       tasks[taskId].progress = 100;
       tasks[taskId].chapterLabel = chapterLabel;
       tasks[taskId].imagePaths = optimizedImages;
+      tasks[taskId].driveLinks = driveLinks;
+      tasks[taskId].rawPath = rawPath;
+      if (opts.translate) tasks[taskId].translatedPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'webp'); // or finalPath
       this.log(taskId, `🏁 Pipeline finished in ${totalTime}s total!`, tasks);
       
     } catch (err: any) {
@@ -305,7 +361,7 @@ export class AutomationOrchestrator {
         'scrape-naver': { dir: 'naver-downloader', exec: 'python', script: 'nava.py' },
         'scrape-kakao': { dir: 'kakao-downloader', exec: 'node', script: 'src/v2/main.ts' },
         'scrape-aio': { dir: 'aio-downloader', exec: 'python', script: 'aio-dl.py' },
-          'detect': { dir: 'text-bpn-plus', exec: 'python', script: 'run_cli.py' },
+          'detect': { dir: 'comic-text-detector', exec: 'python', script: 'run_cli.py' },
           'translate': { dir: 'tseng-scans-ai', exec: 'python', script: 'run_cli.py' }
       };
 
@@ -527,12 +583,35 @@ export class AutomationOrchestrator {
             });
 
           const imageUrls: string[] = [];
-          images.forEach((img, idx) => {
-            const ext = path.extname(img);
-            const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
-            fs.copyFileSync(path.join(chDir, img), path.join(destDir, newName));
-            imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${newName}`);
-          });
+          try {
+            const sharp = (await import('sharp')).default;
+            await Promise.all(images.map(async (img, idx) => {
+              const newName = `${String(idx + 1).padStart(3, '0')}.webp`;
+              await sharp(path.join(chDir, img))
+                .webp({ quality: 85 })
+                .toFile(path.join(destDir, newName));
+            }));
+
+            const finalWebpFiles = fs.readdirSync(destDir)
+              .filter(f => f.endsWith('.webp'))
+              .sort((a, b) => {
+                const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+                const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+                return nA - nB;
+              });
+            
+            finalWebpFiles.forEach(f => {
+              imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${f}`);
+            });
+          } catch (sharpErr: any) {
+            this.log(taskId, `⚠️ WebP compression failed, falling back to original copy: ${sharpErr.message}`, tasks);
+            images.forEach((img, idx) => {
+              const ext = path.extname(img);
+              const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
+              fs.copyFileSync(path.join(chDir, img), path.join(destDir, newName));
+              imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${newName}`);
+            });
+          }
 
           // Write Firestore chapter record
           try {

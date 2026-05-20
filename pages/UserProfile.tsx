@@ -85,7 +85,7 @@ const UserProfile: React.FC = () => {
     items.length > 0 ? (
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
         {items.map((m: any) => (
-          <Link key={m.id} to={`/details/${m.id}`} className="group">
+          <Link key={m.id} to={`/manga/${m.id}`} className="group">
             <div className="aspect-[3/4] rounded-xl overflow-hidden bg-neutral-900 border border-white/[0.04] group-hover:border-white/10 transition-all relative">
               <img src={m.coverImage} alt={language === 'en' ? m.titleEn || m.title : m.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 pt-8">
@@ -168,42 +168,42 @@ const UserProfile: React.FC = () => {
           <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30" />
         </div>
 
-        <div className="absolute bottom-0 inset-x-0 p-4 sm:p-6 md:p-10">
-          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 sm:gap-6">
+        <div className="absolute bottom-0 inset-x-0 p-2 xs:p-3 sm:p-6 md:p-10">
+          <div className="flex flex-col xs:flex-row items-center xs:items-end gap-3 xs:gap-4 sm:gap-6">
             {/* Avatar */}
             <div className="relative shrink-0">
-              <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-36 md:h-36 rounded-xl bg-neutral-900 border-4 border-black shadow-2xl overflow-hidden">
+              <div className="w-20 h-20 xs:w-24 xs:h-24 sm:w-28 sm:h-28 md:w-36 md:h-36 rounded-xl bg-neutral-900 border-4 border-black shadow-2xl overflow-hidden">
                 {profileUser.avatarUrl ? (
                   <img src={profileUser.avatarUrl} className="w-full h-full object-cover" alt="Avatar" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-3xl sm:text-4xl md:text-6xl font-black text-white bg-gradient-to-br from-neutral-800 to-neutral-900">
+                  <div className="w-full h-full flex items-center justify-center text-2xl xs:text-3xl sm:text-4xl md:text-6xl font-black text-white bg-gradient-to-br from-neutral-800 to-neutral-900">
                     {profileUser.name?.charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
-              <div className={`absolute -bottom-1 -end-1 w-6 h-6 rounded-full border-[3px] border-black ${isOnline ? 'bg-emerald-500' : 'bg-neutral-600'}`} />
+              <div className={`absolute -bottom-1 -end-1 w-5 h-5 xs:w-6 xs:h-6 rounded-full border-[3px] border-black ${isOnline ? 'bg-emerald-500' : 'bg-neutral-600'}`} />
             </div>
 
             {/* User Info */}
-            <div className="flex-1 text-center sm:text-start min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
-                <h1 className="text-2xl sm:text-3xl md:text-5xl font-black text-white tracking-tight truncate max-w-full">
+            <div className="flex-1 text-center xs:text-start min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center justify-center xs:justify-start gap-2 xs:gap-3">
+                <h1 className="text-xl xs:text-2xl sm:text-3xl md:text-5xl font-black text-white tracking-tight truncate max-w-full">
                   {profileUser.name}
                 </h1>
-                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-white shadow-lg ${roleBadge.bg} ${roleBadge.glow}`}>
+                <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] xs:text-[10px] font-black uppercase tracking-wider text-white shadow-lg ${roleBadge.bg} ${roleBadge.glow}`}>
                   {roleBadge.icon}
                   {roleBadge.label}
                 </div>
               </div>
               {!isPrivate && (
-                <p className="text-neutral-400 text-xs sm:text-sm font-medium flex items-center justify-center sm:justify-start gap-2 truncate">
+                <p className="text-neutral-400 text-[11px] xs:text-xs sm:text-sm font-medium flex items-center justify-center xs:justify-start gap-1.5 xs:gap-2 truncate">
                   <AtSign size={14} className="shrink-0 text-neutral-500" />
                   {profileUser.email}
                 </p>
               )}
               {!isPrivate && (
-                <div className="flex items-center gap-3 justify-center sm:justify-start">
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm">
+                <div className="flex items-center gap-2 justify-center xs:justify-start">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm">
                     <Flame size={12} className="text-orange-400" />
                     <span className="text-[10px] font-black text-white">{language === 'ar' ? 'مستوى' : 'LV'} {userLevel}</span>
                   </div>
@@ -239,17 +239,17 @@ const UserProfile: React.FC = () => {
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1.5 p-1 bg-neutral-950/80 backdrop-blur-xl border border-white/[0.06] rounded-2xl mb-6 overflow-x-auto">
+          <div className="flex gap-1.5 p-1 bg-neutral-950/80 backdrop-blur-xl border border-white/[0.06] rounded-2xl mb-6 overflow-x-auto no-scrollbar">
             {TABS.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-white text-black' : 'text-neutral-500 hover:text-white hover:bg-white/5'}`}
+                className={`flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] xs:text-xs font-bold whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-white text-black' : 'text-neutral-500 hover:text-white hover:bg-white/5'}`}
               >
                 {tab.icon}
                 {tab.label}
                 {tab.count !== undefined && tab.count > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black ${activeTab === tab.id ? 'bg-black/10' : 'bg-white/10'}`}>{tab.count}</span>
+                  <span className={`px-1 py-0.5 rounded-md text-[8px] xs:text-[9px] font-black ${activeTab === tab.id ? 'bg-black/10' : 'bg-white/10'}`}>{tab.count}</span>
                 )}
               </button>
             ))}
@@ -299,7 +299,7 @@ const UserProfile: React.FC = () => {
                       </div>
                       <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                         {favoriteManhwas.slice(0, 5).map((m: any) => (
-                          <Link key={m.id} to={`/details/${m.id}`} className="group">
+                          <Link key={m.id} to={`/manga/${m.id}`} className="group">
                             <div className="aspect-[3/4] rounded-lg overflow-hidden bg-neutral-900 border border-white/[0.04] group-hover:border-white/10 transition-all">
                               <img src={m.coverImage} alt={language === 'en' ? m.titleEn || m.title : m.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                             </div>
@@ -321,7 +321,7 @@ const UserProfile: React.FC = () => {
                     {comments.length > 0 ? (
                       <div className="space-y-2">
                         {comments.slice(0, 3).map((c: any) => (
-                          <div key={c.id} className="p-3 bg-white/[0.02] rounded-xl border border-white/[0.04] hover:border-white/10 transition-all cursor-pointer" onClick={() => c.manhwaId && navigate(`/details/${c.manhwaId}`)}>
+                          <div key={c.id} className="p-3 bg-white/[0.02] rounded-xl border border-white/[0.04] hover:border-white/10 transition-all cursor-pointer" onClick={() => c.manhwaId && navigate(`/manga/${c.manhwaId}`)}>
                             <p className="text-xs text-neutral-300 font-medium line-clamp-2">{c.content}</p>
                             <div className="flex items-center gap-2 mt-1.5">
                               <span className="text-[9px] text-neutral-600 font-bold">{c.createdAt?.seconds ? new Date(c.createdAt.seconds * 1000).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US') : ''}</span>
@@ -365,7 +365,7 @@ const UserProfile: React.FC = () => {
                         key={c.id}
                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
                         className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.04] hover:border-white/10 hover:bg-white/[0.04] transition-all cursor-pointer"
-                        onClick={() => c.manhwaId && navigate(`/details/${c.manhwaId}`)}
+                        onClick={() => c.manhwaId && navigate(`/manga/${c.manhwaId}`)}
                       >
                         <p className="text-sm text-neutral-300 font-medium leading-relaxed line-clamp-3">{c.content}</p>
                         <div className="flex items-center gap-3 mt-2">

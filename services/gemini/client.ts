@@ -1,5 +1,5 @@
 // 🚀 UX Improvement Phase 5: Helper utility to make requests to backend securely with Timeout/Loading handling
-export const fetchWithTimeout = async (url: string, options: any, timeoutMs: number = 15000) => {
+export const fetchWithTimeout = async (url: string, options: any, timeoutMs: number = 60000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
 
