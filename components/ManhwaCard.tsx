@@ -91,7 +91,7 @@ const ManhwaCard: React.FC<ManhwaCardProps> = ({ manhwa }) => {
         <div className="aspect-[2/3] bg-neutral-900 rounded-xl animate-pulse" />
       ) : (
       <Link 
-        to={`/details/${manhwa.id}`}
+        to={`/manga/${manhwa.id}`}
         className="group block h-full"
       >
         {/* Cover Image */}

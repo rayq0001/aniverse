@@ -100,8 +100,8 @@ const Home: React.FC = () => {
 
       {/* ========== HERO SECTION — Full Bleed ========== */}
       {!searchQuery && !selectedGenre && currentHero && (
-        <div className="-mx-3 sm:-mx-4 md:-mx-8 -mt-4 sm:-mt-6 md:-mt-8 mb-10 md:mb-16">
-          <div className="relative w-full h-[70vh] min-h-[420px] max-h-[800px] overflow-hidden group">
+        <div className="-mx-4 md:-mx-8 -mt-6 md:-mt-8 mb-10 md:mb-16">
+          <div className="relative w-full h-[75vh] min-h-[550px] md:min-h-[650px] max-h-[900px] overflow-hidden group border-b border-white/5">
             {/* Background Image — Full Coverage */}
             <AnimatePresence mode="wait">
               <motion.div
@@ -114,7 +114,7 @@ const Home: React.FC = () => {
               >
                 <img
                   src={currentHero.bannerImage || currentHero.coverImage}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover object-top"
                   alt=""
                   draggable={false}
                 />
@@ -128,7 +128,7 @@ const Home: React.FC = () => {
 
             {/* Hero Content */}
             <div className="absolute inset-0 flex items-end">
-              <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pb-10 md:pb-16">
+              <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pb-10 md:pb-16 pt-20">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={currentHero.id + '-content'}
@@ -139,7 +139,7 @@ const Home: React.FC = () => {
                     className="flex flex-col md:flex-row items-start md:items-end gap-6 md:gap-10"
                   >
                     {/* Cover Image */}
-                    <div className="hidden md:block w-44 lg:w-56 shrink-0 relative">
+                    <div className="hidden md:block w-40 lg:w-48 xl:w-56 shrink-0 relative">
                       <div className="absolute -inset-2 bg-white/5 rounded-2xl blur-2xl" />
                       <img
                         src={currentHero.coverImage}
@@ -149,7 +149,7 @@ const Home: React.FC = () => {
                     </div>
 
                     {/* Text Content */}
-                    <div className="flex-1 space-y-4 md:space-y-5" style={{ textAlign: language === 'ar' ? 'right' : 'left' }}>
+                    <div className="flex-1 space-y-3 md:space-y-4" style={{ textAlign: language === 'ar' ? 'right' : 'left' }}>
                       {/* Badges */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider" style={{ background: 'var(--accent-color)', color: '#000' }}>
@@ -167,7 +167,7 @@ const Home: React.FC = () => {
                       </div>
 
                       {/* Title */}
-                      <h1 className="text-3xl sm:text-5xl lg:text-7xl font-black leading-[0.95] tracking-tight text-white">
+                      <h1 className="text-3xl sm:text-4xl md:text-5xl xl:text-6xl font-black leading-[1.05] tracking-tight text-white max-h-[160px] overflow-hidden">
                         {language === 'en' ? currentHero.titleEn || currentHero.title : currentHero.title}
                       </h1>
 
@@ -188,7 +188,7 @@ const Home: React.FC = () => {
                       {/* Actions */}
                       <div className="flex items-center gap-3 pt-2">
                         <Link
-                          to={`/details/${currentHero.id}`}
+                          to={`/manga/${currentHero.id}`}
                           className="group/btn inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-lg font-bold text-sm sm:text-base text-black transition-all active:scale-95 hover:brightness-110 shadow-lg"
                           style={{ background: 'var(--accent-color)' }}
                         >
@@ -196,7 +196,7 @@ const Home: React.FC = () => {
                           {t('start_reading')}
                         </Link>
                         <Link
-                          to={`/details/${currentHero.id}`}
+                          to={`/manga/${currentHero.id}`}
                           className="inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-lg font-bold text-sm sm:text-base text-white bg-white/10 hover:bg-white/15 backdrop-blur-sm transition-all active:scale-95"
                         >
                           <BookOpen size={16} />
@@ -289,7 +289,7 @@ const Home: React.FC = () => {
               {manhwas.slice(0, 5).map((m, i) => (
                 <Link
                   key={m.id}
-                  to={`/details/${m.id}`}
+                  to={`/manga/${m.id}`}
                   className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/5 transition-colors group"
                 >
                   <span className={`text-xl font-black tabular-nums w-6 text-center shrink-0 ${i === 0 ? 'text-orange-500' : i < 3 ? 'text-neutral-400' : 'text-neutral-700'}`}>

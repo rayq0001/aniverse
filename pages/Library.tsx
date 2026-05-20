@@ -130,11 +130,11 @@ const Library: React.FC = () => {
             <div className="space-y-2">
               {historyItems.map((item, idx) => (
                 <div key={idx} className="flex items-center gap-4 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.1] transition-colors group">
-                  <Link to={`/details/${item.manhwa?.id}`} className="shrink-0 w-12 h-16 rounded-lg overflow-hidden bg-neutral-800">
+                  <Link to={`/manga/${item.manhwa?.id}`} className="shrink-0 w-12 h-16 rounded-lg overflow-hidden bg-neutral-800">
                     <img src={item.manhwa?.coverImage} className="w-full h-full object-cover" alt={item.manhwa?.title} />
                   </Link>
                   <div className="flex-1 min-w-0">
-                    <Link to={`/details/${item.manhwa?.id}`} className="font-bold text-sm text-white line-clamp-1 hover:text-neutral-300 transition-colors">
+                    <Link to={`/manga/${item.manhwa?.id}`} className="font-bold text-sm text-white line-clamp-1 hover:text-neutral-300 transition-colors">
                       {language === 'ar' ? item.manhwa?.title : item.manhwa?.titleEn || item.manhwa?.title}
                     </Link>
                     <div className="flex items-center gap-3 mt-1 text-[11px] text-neutral-500">
@@ -144,7 +144,7 @@ const Library: React.FC = () => {
                     </div>
                   </div>
                   <Link 
-                    to={`/reader/${item.manhwa?.id}/${item.chapter?.id}`}
+                    to={`/read/${item.manhwa?.id}/${item.chapter?.id}`}
                     className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-bold hover:bg-neutral-200 transition-colors"
                   >
                     <BookOpen size={14} />

@@ -1,7 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   X, Send, Bot, Sparkles, Search, Zap, Loader2, 
   BrainCircuit, Compass, LayoutGrid, Wand2
@@ -52,9 +53,9 @@ const AiConcierge: React.FC = () => {
       navigate(`/?q=${encodeURIComponent(q)}`);
       setIsOpen(false);
     } else if (name === 'navigate_to') {
-      if (args.page === 'details' && args.id) navigate(`/details/${args.id}`);
-      else if (args.page === 'library') navigate('/library');
-      else if (args.page === 'advanced-search') navigate('/advanced-search');
+      if (args.page === 'details' && args.id) navigate(`/manga/${args.id}`);
+      else if (args.page === 'bookmarks') navigate('/bookmarks');
+      else if (args.page === 'explore') navigate('/explore');
       else navigate('/');
       setIsOpen(false);
     }
@@ -90,7 +91,7 @@ const AiConcierge: React.FC = () => {
 
   const getContextSuggestions = () => {
     const isEn = language === 'en';
-    if (location.pathname.includes('/details/')) return [
+    if (location.pathname.includes('/manga/')) return [
         { text: isEn ? "Analyze story" : "حلل القصة", icon: <BrainCircuit size={12} /> },
         { text: isEn ? "Why the hype?" : "لماذا الشهرة؟", icon: <Zap size={12} /> },
         { text: isEn ? "Similar works" : "أعمال مشابهة", icon: <LayoutGrid size={12} /> }
@@ -188,9 +189,15 @@ const AiConcierge: React.FC = () => {
                   <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed shadow-lg ${
                     msg.role === 'user' 
                     ? 'bg-white text-black font-bold rounded-br-none' 
-                    : 'bg-neutral-900 border border-white/5 text-neutral-200 rounded-bl-none'
+                    : 'bg-neutral-900 border border-white/5 text-neutral-200 rounded-bl-none markdown-body'
                   }`}>
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {msg.role === 'user' ? (
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    ) : (
+                      <div className="[&_strong]:font-bold [&_strong]:text-white [&_em]:italic [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:mb-1 [&_p]:mb-2 last:[&_p]:mb-0 [&_h1]:text-sm [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_h3]:text-sm [&_h3]:font-bold">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

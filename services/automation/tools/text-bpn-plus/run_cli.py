@@ -44,9 +44,9 @@ def find_model():
 TILE_HEIGHT = 1024      # Height of each tile in pixels
 TILE_OVERLAP = 128      # Overlap between tiles to avoid cutting text
 MODEL_INPUT_SIZE = 640  # OCR model input resolution
-DETECT_THRESHOLD = 0.3  # Lower threshold catches faint/partial text
-DILATION_KERNEL = 11    # Larger kernel to fully cover text strokes + edges
-DILATION_ITERS = 2      # Two passes for thorough coverage
+DETECT_THRESHOLD = 0.25 # Lower threshold catches very faint/partial text for flawless removal
+DILATION_KERNEL = 17    # Much larger kernel to fully cover massive text strokes + heavy edges
+DILATION_ITERS = 3      # Three passes for thick, professional text masking coverage
 
 
 def split_into_tiles(img):
@@ -139,11 +139,19 @@ def refine_mask(mask):
     dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (DILATION_KERNEL, DILATION_KERNEL))
     mask = cv2.dilate(mask, dilate_kernel, iterations=DILATION_ITERS)
 
-    # Step 3: Remove small noise blobs (< 100 pixels)
+    # Step 3: Remove small noise blobs and preserve massive SFX
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
-        if cv2.contourArea(cnt) < 100:
+        area = cv2.contourArea(cnt)
+        if area < 100:
+            # Noise
             cv2.drawContours(mask, [cnt], -1, 0, -1)
+        else:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            # If the bounding box is extremely large, it's likely a massive SFX or title.
+            # Inpainting it would ruin the background, so we leave it untouched.
+            if area > 180000 or (bw > 500 and bh > 500):
+                cv2.drawContours(mask, [cnt], -1, 0, -1)
 
     return mask
 

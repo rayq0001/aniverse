@@ -99,190 +99,190 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
           />
           
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="relative w-full max-w-3xl bg-white dark:bg-neutral-950 rounded-[2.5rem] md:rounded-[3rem] border border-white/5 shadow-2xl overflow-hidden min-h-[500px] md:min-h-[550px]"
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="relative w-full max-w-4xl rounded-[2rem] md:rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] flex flex-col md:flex-row min-h-[600px] border border-white/10"
+            style={{ background: 'linear-gradient(145deg, rgba(30,30,30,0.9), rgba(10,10,10,0.9))', backdropFilter: 'blur(20px)' }}
           >
             {/* Close Button */}
             <button 
               onClick={onClose}
-              className="absolute top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-neutral-500 z-50"
+              className="absolute top-6 right-6 p-2.5 rounded-full bg-white/5 hover:bg-white/20 transition-all text-white z-50 hover:rotate-90 duration-300"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
 
-            <div className="flex flex-col md:flex-row h-full min-h-[500px] md:min-h-[550px]">
-              {/* Visual Side */}
-              <div className="hidden md:flex md:w-5/12 bg-neutral-900 relative overflow-hidden items-center justify-center p-12">
-                <div className="absolute inset-0">
-                  <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_70%)]"></div>
-                  <div className="grid grid-cols-6 gap-3 p-6 opacity-20">
-                    {[...Array(36)].map((_, i) => (
-                      <div key={i} className="aspect-square bg-white/10 rounded-lg animate-pulse" style={{ animationDelay: `${i * 50}ms` }}></div>
-                    ))}
-                  </div>
+            {/* Left Visual Side */}
+            <div className="hidden md:flex md:w-5/12 relative overflow-hidden items-center justify-center p-12">
+              <div className="absolute inset-0 bg-black">
+                {/* Animated Orbs */}
+                <div className="absolute top-0 left-0 w-full h-full">
+                  <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full mix-blend-screen filter blur-[100px] opacity-40 animate-pulse-subtle" style={{ background: 'var(--accent-color)' }}></div>
+                  <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-white rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse-subtle" style={{ animationDelay: '2s' }}></div>
                 </div>
+                {/* Grid Pattern overlay */}
+                <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
+              </div>
+              
+              <div className="relative z-10 flex flex-col items-center text-center space-y-8">
+                <motion.div 
+                  key={isLogin ? 'login' : 'signup'}
+                  initial={{ scale: 0.8, opacity: 0, rotateY: 90 }}
+                  animate={{ scale: 1, opacity: 1, rotateY: 0 }}
+                  transition={{ type: "spring", damping: 15 }}
+                  className="w-32 h-32 rounded-[2rem] bg-white/5 border border-white/10 shadow-[0_0_40px_rgba(255,255,255,0.1)] flex items-center justify-center p-6 backdrop-blur-md"
+                >
+                  <img src="/logo-white.png" alt="Aniverse" className="w-full h-full object-contain" />
+                </motion.div>
                 
-                <div className="relative z-10 text-center space-y-6">
-                  <motion.div 
-                    key={isLogin ? 'login-icon' : 'signup-icon'}
-                    initial={{ scale: 0.5, opacity: 0, rotate: -20 }}
-                    animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                    transition={{ type: "spring", damping: 12 }}
-                    className="w-32 h-32 mx-auto bg-white/5 rounded-[2.5rem] flex items-center justify-center shadow-[0_0_40px_rgba(255,255,255,0.1)] overflow-hidden"
-                  >
-                    <img 
-                      src="/logo-white.png" 
-                      alt="Logo" 
-                      className="w-full h-full object-contain p-4"
-                      referrerPolicy="no-referrer"
-                    />
-                  </motion.div>
+                <div className="space-y-3">
+                  <h3 className="text-2xl font-black text-white tracking-tight">
+                    {isLogin ? 'Welcome Back!' : 'Join Aniverse'}
+                  </h3>
+                  <p className="text-sm text-neutral-400 leading-relaxed">
+                    {isLogin 
+                      ? 'Dive back into your favorite manhwa and continue your journey.' 
+                      : 'Create an account to track your reading, bookmark favorites, and more.'}
+                  </p>
                 </div>
               </div>
+            </div>
 
-              {/* Form Side */}
-              <div className="flex-1 p-8 md:p-12 flex flex-col justify-center space-y-8 bg-white dark:bg-neutral-950">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                      {isLogin ? t('login_btn') : t('signup_btn')}
-                    </h2>
-                    <div className="h-1 w-8 bg-black dark:bg-white rounded-full"></div>
-                  </div>
-                  <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-2xl">
-                    <button 
-                      onClick={() => setIsLogin(true)}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all flex items-center gap-2 ${isLogin ? 'bg-white dark:bg-neutral-800 text-black dark:text-white shadow-xl' : 'text-neutral-500 hover:text-neutral-400'}`}
-                    >
-                      <LogIn size={14} />
-                      <span className="hidden sm:inline">{t('login_btn')}</span>
-                    </button>
-                    <button 
-                      onClick={() => setIsLogin(false)}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all flex items-center gap-2 ${!isLogin ? 'bg-white dark:bg-neutral-800 text-black dark:text-white shadow-xl' : 'text-neutral-500 hover:text-neutral-400'}`}
-                    >
-                      <UserPlus size={14} />
-                      <span className="hidden sm:inline">{t('signup_btn')}</span>
-                    </button>
-                  </div>
+            {/* Right Form Side */}
+            <div className="flex-1 p-8 sm:p-12 flex flex-col justify-center relative bg-white/5">
+              <div className="max-w-sm mx-auto w-full space-y-8 relative z-10">
+                {/* Header */}
+                <div className="space-y-2">
+                  <h2 className="text-3xl font-black text-white tracking-tight">
+                    {isLogin ? t('login_btn') : t('signup_btn')}
+                  </h2>
+                  <p className="text-neutral-400 text-sm">
+                    {isLogin ? 'Enter your details to access your account' : 'Fill in your details to get started'}
+                  </p>
                 </div>
 
-                <div className="space-y-6">
-                  {error && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-xs font-bold text-center"
-                    >
-                      {error}
-                    </motion.div>
-                  )}
+                {error && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold flex items-start gap-3"
+                  >
+                    <div className="shrink-0 mt-0.5"><X size={14} className="bg-red-500/20 rounded-full p-0.5" /></div>
+                    <p>{error}</p>
+                  </motion.div>
+                )}
 
-                  {/* Social Row - Icon Based */}
-                  <div className="flex justify-center gap-4">
-                    <button 
-                      onClick={handleGoogleLogin}
-                      disabled={loading}
-                      title={t('continue_google')}
-                      className="w-16 h-16 flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-all shadow-xl hover:scale-110 active:scale-95 disabled:opacity-50"
-                    >
-                      <GoogleIcon />
-                    </button>
-
+                {/* Google Button */}
+                <button 
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  className="w-full relative group overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 active:scale-[0.98]"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
+                  <div className="relative px-6 py-4 flex items-center justify-center gap-3">
+                    <GoogleIcon />
+                    <span className="text-sm font-bold text-white tracking-wide">{t('continue_google')}</span>
                   </div>
+                </button>
 
-                  <div className="relative py-2">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-gray-200 dark:border-white/5"></span>
-                    </div>
-                    <div className="relative flex justify-center">
-                      <span className="bg-white dark:bg-neutral-950 px-4 text-[10px] uppercase font-black tracking-widest text-neutral-500">{t('or_email')}</span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-4">
+                  <div className="h-px flex-1 bg-white/10"></div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">{t('or_email')}</span>
+                  <div className="h-px flex-1 bg-white/10"></div>
+                </div>
 
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <AnimatePresence mode="wait">
-                      {!isLogin && (
-                        <motion.div 
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: 20 }}
-                          className="relative group"
-                        >
-                          <User className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-black dark:group-focus-within:text-white transition-colors`} size={20} />
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <AnimatePresence mode="wait">
+                    {!isLogin && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
+                        exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="relative group">
+                          <User className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-white transition-colors`} size={20} />
                           <input 
                             type="text" 
                             required
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            className={`w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-black dark:focus:border-white/30 transition-all dark:text-white font-bold`}
+                            className={`w-full bg-black/40 border border-white/10 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-white/30 transition-all text-white placeholder:text-neutral-600 font-medium`}
                             placeholder={t('full_name')}
                           />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-                    <div className="relative group">
-                      <Mail className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-black dark:group-focus-within:text-white transition-colors`} size={20} />
-                      <input 
-                        type="email" 
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className={`w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-black dark:focus:border-white/30 transition-all dark:text-white font-bold`}
-                        placeholder={t('email')}
-                      />
-                    </div>
+                  <div className="relative group">
+                    <Mail className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-white transition-colors`} size={20} />
+                    <input 
+                      type="email" 
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={`w-full bg-black/40 border border-white/10 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-white/30 transition-all text-white placeholder:text-neutral-600 font-medium`}
+                      placeholder={t('email')}
+                    />
+                  </div>
 
-                    <div className="relative group">
-                      <Lock className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-black dark:group-focus-within:text-white transition-colors`} size={20} />
-                      <input 
-                        type="password" 
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className={`w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-black dark:focus:border-white/30 transition-all dark:text-white font-bold`}
-                        placeholder={t('password')}
-                      />
-                    </div>
+                  <div className="relative group">
+                    <Lock className={`absolute ${language === 'ar' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-white transition-colors`} size={20} />
+                    <input 
+                      type="password" 
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={`w-full bg-black/40 border border-white/10 rounded-2xl py-4 ${language === 'ar' ? 'pr-12 pl-4' : 'pl-12 pr-4'} text-sm focus:outline-none focus:border-white/30 transition-all text-white placeholder:text-neutral-600 font-medium`}
+                      placeholder={t('password')}
+                    />
+                  </div>
 
-                    <button 
-                      type="submit"
-                      disabled={loading}
-                      className="w-full bg-black dark:bg-white text-white dark:text-black font-black py-5 rounded-2xl transition-all shadow-2xl active:scale-[0.98] flex items-center justify-center gap-3 text-lg disabled:opacity-50 group"
-                    >
+                  <button 
+                    type="submit"
+                    disabled={loading}
+                    className="w-full relative group overflow-hidden rounded-2xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.1)] hover:shadow-[0_0_40px_rgba(255,255,255,0.2)] active:scale-[0.98] disabled:opacity-50 mt-2"
+                    style={{ background: 'var(--accent-color)' }}
+                  >
+                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                    <div className="relative px-6 py-4 flex items-center justify-center gap-2 text-black">
                       {loading ? (
-                        <div className="w-6 h-6 border-4 border-current/20 border-t-current rounded-full animate-spin" />
+                        <div className="w-6 h-6 border-4 border-black/20 border-t-black rounded-full animate-spin" />
                       ) : (
                         <>
+                          <span className="font-black text-lg tracking-wide">{isLogin ? t('login_btn') : t('signup_btn')}</span>
                           <span className="group-hover:translate-x-1 transition-transform">
-                            {isLogin ? <LogIn size={24} /> : <UserPlus size={24} />}
+                            {isLogin ? <LogIn size={20} strokeWidth={3} /> : <UserPlus size={20} strokeWidth={3} />}
                           </span>
                         </>
                       )}
-                    </button>
-                  </form>
+                    </div>
+                  </button>
+                </form>
 
-                  <div className="text-center">
+                <div className="text-center pt-2">
+                  <p className="text-sm text-neutral-500">
+                    {isLogin ? (language === 'ar' ? "ليس لديك حساب؟" : "Don't have an account?") : (language === 'ar' ? "لديك حساب بالفعل؟" : "Already have an account?")}{' '}
                     <button 
                       onClick={() => setIsLogin(!isLogin)}
-                      className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 hover:text-black dark:hover:text-white transition-colors"
+                      className="font-bold text-white hover:underline transition-all"
                     >
                       {isLogin ? t('register_now') : t('login_now')}
                     </button>
-                  </div>
+                  </p>
                 </div>
               </div>
             </div>

@@ -20,8 +20,10 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@types/sharp": "^0.31.1",
     "axios": "^1.4.0",
     "puppeteer": "^10.2.0",
+    "sharp": "^0.34.5",
     "tslib": "^2.5.3"
   },
   "devDependencies": {

@@ -63,10 +63,10 @@ const App: React.FC = () => {
           <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>}>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/details/:id" element={<Details />} />
-            <Route path="/reader/:manhwaId/:chapterId" element={<Reader />} />
-            <Route path="/library" element={<Library />} />
-            <Route path="/advanced-search" element={<AdvancedSearch />} />
+            <Route path="/manga/:id" element={<Details />} />
+            <Route path="/read/:manhwaId/:chapterId" element={<Reader />} />
+            <Route path="/bookmarks" element={<Library />} />
+            <Route path="/explore" element={<AdvancedSearch />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/help-center" element={<HelpCenter />} />

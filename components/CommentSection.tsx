@@ -12,10 +12,11 @@ import { auth, db, handleFirestoreError, OperationType, onPresenceChange } from 
 import { 
   collection, query, where, orderBy, onSnapshot, 
   addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
-  increment, getDoc
+  increment, getDoc, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavigate } from 'react-router-dom';
 
 interface Comment {
   id: string;
@@ -29,6 +30,8 @@ interface Comment {
   parentId: string | null;
   likes: number;
   dislikes: number;
+  likedBy?: string[];
+  dislikedBy?: string[];
   isPinned: boolean;
   isApproved: boolean;
   media: string[];
@@ -52,8 +55,10 @@ const CommentItem: React.FC<{
   isAdmin: boolean;
   allComments: Comment[];
   currentUserId?: string;
-}> = ({ comment, replies, onReply, onLike, onDislike, onDelete, onPin, onReport, isAdmin, allComments, currentUserId }) => {
+  usersCache: Record<string, {name: string, avatar: string, role: string}>;
+}> = ({ comment, replies, onReply, onLike, onDislike, onDelete, onPin, onReport, isAdmin, allComments, currentUserId, usersCache }) => {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyContent, setReplyContent] = useState('');
   const [isExpanded, setIsExpanded] = useState(true);
@@ -109,6 +114,10 @@ const CommentItem: React.FC<{
     return embeds;
   };
 
+  const displayAvatar = usersCache[comment.userId]?.avatar !== undefined ? usersCache[comment.userId].avatar : comment.userAvatar;
+  const displayName = usersCache[comment.userId]?.name || comment.userName;
+  const displayRole = usersCache[comment.userId]?.role || comment.userRole;
+
   return (
     <div className={`relative ${comment.parentId ? 'ml-6 md:ml-10 mt-3 border-l border-white/[0.06] pl-4' : 'mt-5'}`}>
       <div className={`group relative p-3 rounded-xl transition-colors ${comment.isPinned ? 'bg-white/[0.04] border border-white/[0.06]' : 'hover:bg-white/[0.03]'}`}>
@@ -120,12 +129,12 @@ const CommentItem: React.FC<{
         )}
 
         <div className="flex gap-3">
-          <div className="shrink-0 cursor-pointer relative" onClick={() => comment.userId && window.location.assign(`#/user/${comment.userId}`)}>
+          <div className="shrink-0 cursor-pointer relative" onClick={() => comment.userId && navigate(`/user/${comment.userId}`)}>
             <div className="w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center overflow-hidden border border-white/[0.06]">
-              {comment.userAvatar ? (
-                <img src={comment.userAvatar} alt={comment.userName} className="w-full h-full object-cover" />
+              {displayAvatar ? (
+                <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-xs font-bold">{comment.userName.charAt(0).toUpperCase()}</span>
+                <span className="text-xs font-bold">{displayName.charAt(0).toUpperCase()}</span>
               )}
             </div>
             <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-neutral-900 ${isOnline ? 'bg-emerald-500' : 'bg-neutral-600'}`} />
@@ -136,20 +145,20 @@ const CommentItem: React.FC<{
               <div className="flex items-center gap-2 flex-wrap">
                 <span 
                   className="font-bold text-sm text-white hover:text-neutral-300 cursor-pointer transition-colors"
-                  onClick={() => comment.userId && window.location.assign(`#/user/${comment.userId}`)}
-                >{comment.userName}</span>
-                {comment.userRole && comment.userRole !== 'user' && (
+                  onClick={() => comment.userId && navigate(`/user/${comment.userId}`)}
+                >{displayName}</span>
+                {displayRole && displayRole !== 'user' && (
                   <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
-                    comment.userRole === 'admin' ? 'bg-red-500 text-white' :
-                    comment.userRole === 'moderator' ? 'bg-purple-500 text-white' :
-                    comment.userRole.startsWith('staff') ? 'bg-emerald-500 text-white' :
+                    displayRole === 'admin' ? 'bg-red-500 text-white' :
+                    displayRole === 'moderator' ? 'bg-purple-500 text-white' :
+                    displayRole.startsWith('staff') ? 'bg-emerald-500 text-white' :
                     'bg-white text-black'
                   }`}>
                     <Shield size={8} />
-                    {comment.userRole.replace('_', ' ')}
+                    {displayRole.replace('_', ' ')}
                   </span>
                 )}
-                {comment.userRole === 'verified' && (
+                {displayRole === 'verified' && (
                   <CheckCircle size={14} className="text-blue-400" />
                 )}
                 <span className="text-[10px] text-neutral-500 font-bold">
@@ -237,16 +246,16 @@ const CommentItem: React.FC<{
               <div className="flex items-center gap-0.5">
                 <button 
                   onClick={() => onLike(comment.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md transition-colors ${comment.likedBy?.includes(currentUserId || '') ? 'bg-emerald-500/10 text-emerald-500' : 'text-neutral-400 hover:bg-white/[0.06] hover:text-white'}`}
                 >
-                  <ThumbsUp size={12} />
+                  <ThumbsUp size={12} className={comment.likedBy?.includes(currentUserId || '') ? 'fill-current' : ''} />
                   <span className="text-[10px] font-bold">{comment.likes}</span>
                 </button>
                 <button 
                   onClick={() => onDislike(comment.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/[0.06] transition-colors text-neutral-400 hover:text-white"
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md transition-colors ${comment.dislikedBy?.includes(currentUserId || '') ? 'bg-red-500/10 text-red-500' : 'text-neutral-400 hover:bg-white/[0.06] hover:text-white'}`}
                 >
-                  <ThumbsDown size={12} />
+                  <ThumbsDown size={12} className={comment.dislikedBy?.includes(currentUserId || '') ? 'fill-current' : ''} />
                   <span className="text-[10px] font-bold">{comment.dislikes}</span>
                 </button>
               </div>
@@ -328,6 +337,7 @@ const CommentItem: React.FC<{
                 isAdmin={isAdmin}
                 allComments={allComments}
                 currentUserId={currentUserId}
+                usersCache={usersCache}
               />
             ))}
           </motion.div>
@@ -351,6 +361,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
   const [selectedMedia, setSelectedMedia] = useState<string[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [uploadType, setUploadType] = useState<'image' | 'gif'>('image');
+  const [usersCache, setUsersCache] = useState<Record<string, {name: string, avatar: string, role: string}>>({});
+  const fetchedUids = React.useRef<Set<string>>(new Set());
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -370,6 +382,39 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
     reader.readAsDataURL(file);
     e.target.value = ''; // Reset input
   };
+
+  useEffect(() => {
+    const fetchMissingUsers = async () => {
+      const uniqueUserIds = [...new Set(comments.map(c => c.userId).filter(Boolean))];
+      const missingUids = uniqueUserIds.filter(uid => !fetchedUids.current.has(uid));
+      
+      if (missingUids.length === 0) return;
+      
+      missingUids.forEach(uid => fetchedUids.current.add(uid));
+
+      const fetchedData: Record<string, any> = {};
+      await Promise.all(missingUids.map(async (uid) => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            fetchedData[uid] = {
+              name: data.name || '',
+              avatar: data.avatarUrl || '',
+              role: data.role || 'user'
+            };
+          }
+        } catch (e) {}
+      }));
+
+      if (Object.keys(fetchedData).length > 0) {
+        setUsersCache(prev => ({ ...prev, ...fetchedData }));
+      }
+    };
+    if (comments.length > 0) {
+      fetchMissingUsers();
+    }
+  }, [comments]);
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
@@ -461,16 +506,68 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
   };
 
   const handleLike = async (id: string) => {
+    if (!currentUser) {
+      toast.error(language === 'ar' ? 'يجب تسجيل الدخول' : 'Login required');
+      return;
+    }
+    const comment = comments.find(c => c.id === id);
+    if (!comment) return;
+
+    const hasLiked = comment.likedBy?.includes(currentUser.uid);
+    const hasDisliked = comment.dislikedBy?.includes(currentUser.uid);
+
     try {
-      await updateDoc(doc(db, 'comments', id), { likes: increment(1) });
+      const docRef = doc(db, 'comments', id);
+      if (hasLiked) {
+        await updateDoc(docRef, { 
+          likes: increment(-1), 
+          likedBy: arrayRemove(currentUser.uid) 
+        });
+      } else {
+        const updates: any = {
+          likes: increment(1),
+          likedBy: arrayUnion(currentUser.uid)
+        };
+        if (hasDisliked) {
+          updates.dislikes = increment(-1);
+          updates.dislikedBy = arrayRemove(currentUser.uid);
+        }
+        await updateDoc(docRef, updates);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `comments/${id}`);
     }
   };
 
   const handleDislike = async (id: string) => {
+    if (!currentUser) {
+      toast.error(language === 'ar' ? 'يجب تسجيل الدخول' : 'Login required');
+      return;
+    }
+    const comment = comments.find(c => c.id === id);
+    if (!comment) return;
+
+    const hasLiked = comment.likedBy?.includes(currentUser.uid);
+    const hasDisliked = comment.dislikedBy?.includes(currentUser.uid);
+
     try {
-      await updateDoc(doc(db, 'comments', id), { dislikes: increment(1) });
+      const docRef = doc(db, 'comments', id);
+      if (hasDisliked) {
+        await updateDoc(docRef, { 
+          dislikes: increment(-1), 
+          dislikedBy: arrayRemove(currentUser.uid) 
+        });
+      } else {
+        const updates: any = {
+          dislikes: increment(1),
+          dislikedBy: arrayUnion(currentUser.uid)
+        };
+        if (hasLiked) {
+          updates.likes = increment(-1);
+          updates.likedBy = arrayRemove(currentUser.uid);
+        }
+        await updateDoc(docRef, updates);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `comments/${id}`);
     }
@@ -683,6 +780,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ manhwaId, chapterId }) 
               isAdmin={isAdmin}
               allComments={filteredComments}
               currentUserId={currentUser?.uid}
+              usersCache={usersCache}
             />
           ))
         ) : (

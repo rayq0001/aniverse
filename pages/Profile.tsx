@@ -283,14 +283,14 @@ const Profile: React.FC = () => {
     <div className="max-w-7xl mx-auto pb-24 px-3 sm:px-4" dir={dir}>
       
       {/* Hero Banner */}
-      <div className="relative rounded-xl overflow-hidden mb-6 group">
-        <div className="h-44 sm:h-56 md:h-72 relative">
+      <div className="relative rounded-xl overflow-hidden mb-6 group bg-white/[0.02] border border-white/[0.06]">
+        <div className="h-32 sm:h-56 md:h-72 relative">
           <img 
             src={user.bannerUrl || BANNERS[0]} 
             className="w-full h-full object-cover" 
             alt="Banner"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent sm:block hidden" />
           <button 
             onClick={() => setShowBannerModal(true)}
             className="absolute top-3 end-3 p-2 bg-black/50 hover:bg-black/80 backdrop-blur-sm rounded-lg text-white/60 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
@@ -299,8 +299,8 @@ const Profile: React.FC = () => {
           </button>
         </div>
 
-        <div className="absolute bottom-0 inset-x-0 p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4">
+        <div className="relative sm:absolute sm:bottom-0 inset-x-0 p-4 sm:p-6 z-10 -mt-12 sm:mt-0">
+          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-3 sm:gap-4">
             <div 
               className="relative group/avatar cursor-pointer shrink-0"
               onClick={() => setShowAvatarModal(true)}
@@ -456,7 +456,7 @@ const Profile: React.FC = () => {
         <div className="lg:col-span-8 space-y-4">
           
           {/* Navigation Tabs */}
-          <div className="bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] flex gap-1">
+          <div className="bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] flex flex-wrap sm:flex-nowrap gap-1">
             {[
               { id: 'overview' as const, icon: <CircleUserRound size={14} />, label: language === 'ar' ? 'الملف الشخصي' : 'Profile' },
               { id: 'notifications' as const, icon: <Bell size={14} />, label: language === 'ar' ? 'التنبيهات' : 'Alerts' },
@@ -567,7 +567,7 @@ const Profile: React.FC = () => {
                       {[
                         { icon: <Camera size={14} />, label: language === 'ar' ? 'تغيير الصورة' : 'Change Avatar', action: () => setShowAvatarModal(true) },
                         { icon: <ImagePlus size={14} />, label: language === 'ar' ? 'تغيير الغلاف' : 'Change Banner', action: () => setShowBannerModal(true) },
-                        { icon: <BookOpen size={14} />, label: language === 'ar' ? 'المكتبة' : 'Library', action: () => navigate('/library') },
+                        { icon: <BookOpen size={14} />, label: language === 'ar' ? 'المكتبة' : 'Library', action: () => navigate('/bookmarks') },
                       ].map((item, i) => (
                         <button
                           key={i}

@@ -59,6 +59,24 @@ export class GoogleSyncService {
     return folder.data.id;
   }
 
+  async getShareableLink(fileId: string): Promise<string> {
+    if (!this.drive) return '';
+    try {
+      await this.drive.permissions.create({
+        fileId: fileId,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+      const file = await this.drive.files.get({
+        fileId: fileId,
+        fields: 'webViewLink'
+      });
+      return file.data.webViewLink || '';
+    } catch (err) {
+      console.warn("Failed to create shareable link", err);
+      return '';
+    }
+  }
+
   async uploadFile(folderId: string, filePath: string): Promise<string> {
     if (!this.drive) throw new Error('Google Drive API not initialized');
 
@@ -143,4 +161,96 @@ export class GoogleSyncService {
 
     return docId as string;
   }
+
+  /**
+   * List files in Drive folder with pagination
+   */
+  async listFiles(folderId: string, options: {
+    pageSize?: number;
+    pageToken?: string;
+  } = {}): Promise<{ files: Array<{id: string; name: string; mimeType: string; size: number}>; nextPageToken?: string }> {
+    if (!this.drive) throw new Error('Google Drive API not initialized');
+
+    const q = `'${folderId}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
+
+    const response = await this.drive.files.list({
+      q,
+      fields: 'nextPageToken,files(id,name,mimeType,size)',
+      pageSize: options.pageSize || 100,
+      pageToken: options.pageToken,
+    });
+
+    const files = (response.data.files || []).map((f: any) => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      size: Number(f.size) || 0,
+    }));
+
+    return {
+      files,
+      nextPageToken: response.data.nextPageToken,
+    };
+  }
+
+  /**
+   * Download full folder with pagination + range control
+   */
+  async downloadFolderFiles(folderId: string, destDir: string, options: {
+    maxFiles?: number;
+    skipFiles?: number;  // Skip first N files (startIndex equivalent)
+    pageSize?: number;
+  } = {}): Promise<string[]> {
+    if (!this.drive) throw new Error('Google Drive API not ready - needs service-account.json');
+
+    const downloaded: string[] = [];
+    let pageToken: string | undefined;
+    let downloadedCount = 0;
+
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+    do {
+      const { files, nextPageToken } = await this.listFiles(folderId, {
+        pageSize: options.pageSize || 100,
+        pageToken,
+      });
+
+      for (const file of files) {
+        if (file.mimeType.startsWith('image/') === false) continue;
+
+        if (options.skipFiles && downloadedCount < options.skipFiles) {
+          downloadedCount++;
+          continue;
+        }
+        if (options.maxFiles && downloadedCount >= options.maxFiles) break;
+
+        const ext = path.extname(file.name) || '.jpg';
+        const filename = `${String(downloaded.length + 1).padStart(3, '0')}${ext}`;
+        const destPath = path.join(destDir, filename);
+
+        try {
+          const dlRes = await fetch(`https://drive.google.com/uc?export=download&id=${file.id}`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+          });
+
+          if (dlRes.ok) {
+            fs.writeFileSync(destPath, Buffer.from(await dlRes.arrayBuffer()));
+            downloaded.push(filename);
+            console.log(`✅ Downloaded ${filename}`);
+          }
+        } catch (err) {
+          console.error(`❌ Failed ${file.name}:`, err);
+        }
+
+        downloadedCount++;
+      }
+
+      pageToken = nextPageToken;
+    } while (pageToken && (!options.maxFiles || downloadedCount < options.maxFiles));
+
+    return downloaded;
+  }
 }
+

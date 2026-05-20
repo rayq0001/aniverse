@@ -1,8 +1,9 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronLeft, BrainCircuit, ScanSearch, X, Loader2, Sparkles, Settings, List, ArrowUp, Milestone, Zap, Infinity, ZoomIn, GripHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronLeft, BrainCircuit, ScanSearch, X, Loader2, Sparkles, Settings, List, ArrowUp, Milestone, Zap, Infinity, ZoomIn, GripHorizontal, ArrowDown, Pause } from 'lucide-react';
 import { analyzeChapterAI, explainMangaPage } from '../services/geminiService';
 import { useLanguage } from '../contexts/LanguageContext';
 import CommentSection from '../components/CommentSection';
@@ -17,6 +18,7 @@ const Reader: React.FC = () => {
   const { manhwaId, chapterId } = useParams();
   const navigate = useNavigate();
   const [zoom, setZoom] = useState(100);
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState(0);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [aiType, setAiType] = useState<'summary' | 'analysis'>('summary');
   const [aiContent, setAiContent] = useState('');
@@ -170,15 +172,15 @@ const Reader: React.FC = () => {
       if (!manhwaChapters || manhwaChapters.length === 0) return;
       if (e.key === 'ArrowRight') {
         if (language === 'ar') {
-          if (currentChapterIndex > 0) navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`);
+          if (currentChapterIndex > 0) navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`);
         } else {
-          if (currentChapterIndex < manhwaChapters.length - 1) navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`);
+          if (currentChapterIndex < manhwaChapters.length - 1) navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`);
         }
       } else if (e.key === 'ArrowLeft') {
         if (language === 'ar') {
-          if (currentChapterIndex < manhwaChapters.length - 1) navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`);
+          if (currentChapterIndex < manhwaChapters.length - 1) navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`);
         } else {
-          if (currentChapterIndex > 0) navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`);
+          if (currentChapterIndex > 0) navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`);
         }
       }
     };
@@ -186,6 +188,28 @@ const Reader: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentChapterIndex, manhwaChapters, manhwaId, navigate, language]);
+
+  useEffect(() => {
+    if (autoScrollSpeed === 0) return;
+
+    let animationFrameId: number;
+    let lastTime = performance.now();
+    
+    // speed 1: slow, speed 2: medium, speed 3: fast
+    const pixelsPerMs = autoScrollSpeed === 1 ? 0.04 : autoScrollSpeed === 2 ? 0.1 : 0.22;
+
+    const scroll = (time: number) => {
+      const elapsed = time - lastTime;
+      lastTime = time;
+      
+      const distance = elapsed * pixelsPerMs;
+      window.scrollBy(0, distance);
+      animationFrameId = requestAnimationFrame(scroll);
+    };
+
+    animationFrameId = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [autoScrollSpeed]);
 
   const handleChapterAI = async () => {
     if (!manhwa || loadedChapters.length === 0) return;
@@ -298,7 +322,9 @@ const Reader: React.FC = () => {
                 </div>
               ) : (
                 <div className="bg-white/[0.03] p-5 rounded-xl border border-white/[0.04]">
-                  <p className="whitespace-pre-wrap text-neutral-300 text-sm leading-relaxed">{aiContent}</p>
+                  <div className="text-neutral-300 text-sm leading-relaxed markdown-body [&_strong]:font-bold [&_strong]:text-white [&_em]:italic [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:mb-1 [&_p]:mb-2 last:[&_p]:mb-0 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-[15px] [&_h3]:font-bold [&_h3]:text-white [&_h3]:mt-3 [&_h3]:mb-1">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiContent}</ReactMarkdown>
+                  </div>
                 </div>
               )}
             </div>
@@ -320,7 +346,7 @@ const Reader: React.FC = () => {
         
         <div className="max-w-7xl mx-auto px-3 md:px-6 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-3 md:gap-4 min-w-0">
-            <Link to={`/details/${manhwa.id}`} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0">
+            <Link to={`/manga/${manhwa.id}`} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0">
               <ChevronRight size={18} className={language === 'ar' ? '' : 'rotate-180'} />
             </Link>
             <div className="min-w-0">
@@ -381,7 +407,7 @@ const Reader: React.FC = () => {
           <div className="w-full max-w-2xl px-4 mt-10 flex items-center justify-between gap-3">
              {currentChapterIndex > 0 ? (
                <button 
-                 onClick={() => navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`)}
+                 onClick={() => navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex - 1].id}`)}
                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-white/[0.04] hover:bg-white/[0.08] rounded-xl border border-white/[0.06] transition-colors font-bold text-sm"
                >
                  <ChevronRight className={language === 'ar' ? '' : 'rotate-180'} size={16} />
@@ -391,7 +417,7 @@ const Reader: React.FC = () => {
 
              {currentChapterIndex < manhwaChapters.length - 1 ? (
                <button 
-                 onClick={() => navigate(`/reader/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`)}
+                 onClick={() => navigate(`/read/${manhwaId}/${manhwaChapters[currentChapterIndex + 1].id}`)}
                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-white text-black hover:bg-neutral-200 rounded-xl transition-colors font-bold text-sm"
                >
                  {language === 'ar' ? 'الفصل التالي' : 'Next Chapter'}
@@ -435,7 +461,7 @@ const Reader: React.FC = () => {
                   <button
                     key={c.id}
                     onClick={() => {
-                      navigate(`/reader/${manhwaId}/${c.id}`);
+                      navigate(`/read/${manhwaId}/${c.id}`);
                       setIsQuickNavOpen(false);
                     }}
                     className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors group ${c.id === chapterId ? 'bg-white text-black border-white' : 'bg-white/[0.03] border-white/[0.04] hover:border-white/[0.1] text-neutral-400 hover:text-white'}`}
@@ -580,6 +606,19 @@ const Reader: React.FC = () => {
          <span className="text-[10px] font-bold w-8 text-center text-neutral-400 tabular-nums">{zoom}%</span>
          <button onClick={() => setZoom(z => Math.min(z + 10, 100))} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-400 hover:text-white transition-colors">
            <ChevronRight className="-rotate-90" size={14} />
+         </button>
+         <div className="w-px h-3 bg-white/[0.06] mx-1"></div>
+         <button 
+           onClick={() => setAutoScrollSpeed(prev => (prev === 3 ? 0 : prev + 1))}
+           className={`p-1.5 rounded-lg transition-all duration-200 flex items-center gap-1 shrink-0 ${
+             autoScrollSpeed > 0 
+               ? 'bg-white text-black hover:bg-neutral-200 scale-105 shadow-md shadow-white/10' 
+               : 'text-neutral-400 hover:text-white hover:bg-white/[0.06]'
+           }`}
+           title={language === 'ar' ? 'التمرير التلقائي' : 'Auto Scroll'}
+         >
+           {autoScrollSpeed === 0 ? <ArrowDown size={14} /> : <Pause size={14} />}
+           {autoScrollSpeed > 0 && <span className="text-[9px] font-black tabular-nums">x{autoScrollSpeed}</span>}
          </button>
          <div className="w-px h-3 bg-white/[0.06] mx-1"></div>
          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="p-1.5 hover:bg-white/[0.06] rounded-lg text-neutral-400 hover:text-white transition-colors">

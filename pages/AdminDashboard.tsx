@@ -9,8 +9,9 @@ import {
   Download, Cpu, Terminal, Zap, Eraser, 
   FileText, Upload, Ban, XCircle, 
   Settings, Menu, X, LayoutDashboard, TrendingUp,
-  ShieldAlert, Filter, Lock, BookOpen, Plus, Image, Edit3, Clock, Check, ChevronDown
+  ShieldAlert, Filter, Lock, BookOpen, Plus, Image, Edit3, Clock, Check, ChevronDown, Sparkles, Link, Play, Home
 } from 'lucide-react';
+import VisualTypesetter from '../components/VisualTypesetter';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer 
@@ -58,6 +59,8 @@ const AdminDashboard: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userAnalytics, setUserAnalytics] = useState<any>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showAdminNav, setShowAdminNav] = useState(true);
+  const [typesetChapter, setTypesetChapter] = useState<{ manhwaId: string; chapter: any } | null>(null);
   const [growthData, setGrowthData] = useState<any[]>([]);
 
   // Automation Hub States
@@ -72,6 +75,8 @@ const AdminDashboard: React.FC = () => {
   const [isAutomationRunning, setIsAutomationRunning] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [automationOptions, setAutomationOptions] = useState({ scrape: false, translate: false });
+  const [completedTaskData, setCompletedTaskData] = useState<any>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,6 +84,12 @@ const AdminDashboard: React.FC = () => {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [automationLogs]);
+
+  useEffect(() => {
+    const handleShowAdminNav = () => setShowAdminNav(true);
+    window.addEventListener('showAdminNav', handleShowAdminNav);
+    return () => window.removeEventListener('showAdminNav', handleShowAdminNav);
+  }, []);
 
   // Staff Publisher State
   const [staffFile, setStaffFile] = useState<File | null>(null);
@@ -107,10 +118,14 @@ const AdminDashboard: React.FC = () => {
   const [manhwaView, setManhwaView] = useState<'list' | 'add' | 'edit'>('list');
   const [manhwaSearchQuery, setManhwaSearchQuery] = useState('');
   
-  // Quick Chapter Upload State
+// Quick Chapter Upload State
   const [quickUploadModal, setQuickUploadModal] = useState<{ manhwaId: string; manhwaTitle: string } | null>(null);
-  // Removed: quickUploadChapterNum, quickUploadChapterTitle (automation)
+  const [quickUploadStartChapter, setQuickUploadStartChapter] = useState('');
+  const [quickUploadEndChapter, setQuickUploadEndChapter] = useState('');
+
   const [quickUploadDriveLink, setQuickUploadDriveLink] = useState('');
+  const [quickUploadStart, setQuickUploadStart] = useState('1');
+  const [quickUploadEnd, setQuickUploadEnd] = useState('1');
   const [quickUploadFiles, setQuickUploadFiles] = useState<File[]>([]);
   const [quickUploadUploading, setQuickUploadUploading] = useState(false);
   const quickUploadFolderRef = useRef<HTMLInputElement>(null);
@@ -323,6 +338,8 @@ const AdminDashboard: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('manhwaId', quickUploadModal.manhwaId);
+      if (quickUploadStartChapter) formData.append('startChapter', quickUploadStartChapter);
+      if (quickUploadEndChapter) formData.append('endChapter', quickUploadEndChapter);
       // No chapterNumber or chapterTitle sent; backend will infer
       if (quickUploadDriveLink) {
         formData.append('driveLink', quickUploadDriveLink);
@@ -334,17 +351,21 @@ const AdminDashboard: React.FC = () => {
         }
       }
 
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/automation/quick-chapter-upload', {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData,
       });
       const data = await response.json();
       if (data.success) {
         toast.dismiss(toastId);
         toast.success(language === 'ar' ? `تم رفع الفصل بنجاح!` : `Chapter uploaded successfully!`);
-        setQuickUploadModal(null);
-        setQuickUploadDriveLink('');
-        setQuickUploadFiles([]);
+    setQuickUploadModal(null);
+    setQuickUploadStartChapter('');
+    setQuickUploadEndChapter('');
+    setQuickUploadDriveLink('');
+    setQuickUploadFiles([]);
       } else {
         toast.dismiss(toastId);
         toast.error(data.error || (language === 'ar' ? 'حدث خطأ أثناء الرفع' : 'Upload failed'));
@@ -368,9 +389,13 @@ const AdminDashboard: React.FC = () => {
     setMerging(true);
     const toastId = toast.loading(language === 'ar' ? 'جاري دمج الفصول...' : 'Merging chapters...');
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/automation/merge-chapters', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           manhwaId: mergeModal.manhwaId,
           sourceChapters: mergeSourceChapters,
@@ -419,7 +444,12 @@ const AdminDashboard: React.FC = () => {
           formData.append('imageFiles', file);
         }
       }
-      const res = await fetch('/api/automation/quick-chapter-upload', { method: 'POST', body: formData });
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/automation/quick-chapter-upload', { 
+        method: 'POST', 
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData 
+      });
       const data = await res.json();
       setBulkUploadUploading(false);
       setBulkUploadModal(false);
@@ -462,7 +492,12 @@ const AdminDashboard: React.FC = () => {
         } else {
           for (const file of editChapterFiles) formData.append('imageFiles', file);
         }
-        const res = await fetch('/api/automation/quick-chapter-upload', { method: 'POST', body: formData });
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch('/api/automation/quick-chapter-upload', { 
+          method: 'POST', 
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData 
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         toast.success(language === 'ar' ? 'تم تحديث الفصل بنجاح' : 'Chapter updated successfully');
@@ -503,9 +538,13 @@ const AdminDashboard: React.FC = () => {
     setBulkDownloadLogs([`[SYSTEM]: بدء تنزيل ${end - start + 1} فصل...`]);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/automation/bulk-scrape', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           source: bulkDownloadSource,
           contentId: bulkDownloadContentId,
@@ -532,7 +571,10 @@ const AdminDashboard: React.FC = () => {
     if (!bulkDownloadRunning || !bulkDownloadTaskId) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/automation/tasks');
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch('/api/automation/tasks', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         const task = data.tasks.find((t: any) => t.id === bulkDownloadTaskId);
         if (task) {
@@ -796,7 +838,11 @@ const AdminDashboard: React.FC = () => {
       // Delete Firestore user doc
       await deleteDoc(doc(db, 'users', userId));
       // Delete Firebase Auth user via server
-      await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+      const token = await auth.currentUser?.getIdToken();
+      await fetch(`/api/users/${userId}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       setDeleteConfirm(null);
       toast.success(language === 'ar' ? 'تم حذف المستخدم' : 'User deleted');
     } catch (err) {
@@ -848,8 +894,10 @@ const AdminDashboard: React.FC = () => {
     if (staffFile) formData.append('zipFile', staffFile);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/automation/staff-publish', {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
       const data = await response.json();
@@ -865,19 +913,50 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const startAutomation = async (type: 'scrape' | 'ai') => {
+  const downloadLocalZip = async (taskId: string, type: 'raw' | 'translated') => {
+    try {
+      const toastId = toast.loading(language === 'ar' ? 'جاري تجهيز الملف...' : 'Preparing ZIP file...');
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch(`/api/automation/download/${taskId}/${type}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        toast.error(language === 'ar' ? 'فشل تحميل الملف' : 'Failed to download ZIP', { id: toastId });
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${type}-${taskId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(language === 'ar' ? 'تم بدء التحميل!' : 'Download started!', { id: toastId });
+    } catch(err) {
+      toast.error(language === 'ar' ? 'خطأ في التحميل' : 'Download error');
+    }
+  };
+
+  const startAutomation = async () => {
     const isRangeScraper = selectedSource === 'Naver' || selectedSource === 'Kakao';
 
-    if (type === 'ai' && !automationReadiness.ready) {
+    if (!automationOptions.scrape && !automationOptions.translate) {
+      toast.error(language === 'ar' ? 'يرجى تحديد عملية واحدة على الأقل' : 'Please select at least one task');
+      return;
+    }
+
+    if (automationOptions.translate && !automationReadiness.ready) {
       toast.error(
         language === 'ar'
-          ? 'أدوات التبييض/الترجمة غير جاهزة. راجع حالة الأدوات في بطاقة AI.'
-          : 'AI tools are not ready. Check readiness details in the AI card.'
+          ? 'أدوات التبييض/الترجمة غير جاهزة. راجع رسائل الخطأ.'
+          : 'AI tools are not ready. Check error messages.'
       );
       return;
     }
 
-    if (type === 'scrape') {
+    if (automationOptions.scrape) {
       const isMissingRangeInput = !automationSeriesId || !automationStartChapter || !automationEndChapter;
       const isMissingUrlInput = !automationUrl;
 
@@ -885,32 +964,38 @@ const AdminDashboard: React.FC = () => {
         toast.error(
           language === 'ar'
             ? isRangeScraper
-              ? 'يرجى إدخال المعرف ورقم الفصل الأول والأخير.'
-              : 'يرجى إدخال رابط المانهوا.'
+              ? 'يرجى إدخال المعرف ورقم الفصل الأول والأخير للسحب.'
+              : 'يرجى إدخال رابط المانهوا للسحب.'
             : isRangeScraper
-              ? 'Please provide the series ID, first chapter, and last chapter.'
-              : 'Please provide the manhwa URL.'
+              ? 'Please provide the series ID, first chapter, and last chapter for scraping.'
+              : 'Please provide the manhwa URL for scraping.'
         );
         return;
       }
     }
 
     setIsAutomationRunning(true);
-    setAutomationLogs(prev => [...prev, `[SYSTEM]: Initiating ${type} sequence...`]);
+    setCompletedTaskData(null);
+    setAutomationLogs(prev => [...prev, `[SYSTEM]: Initiating Pipeline Studio...`]);
     
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/automation/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          type,
+          type: 'full_pipeline',
           url: isRangeScraper ? '' : automationUrl,
           contentId: isRangeScraper ? automationSeriesId : '',
           startChapter: isRangeScraper ? automationStartChapter : '',
           endChapter: isRangeScraper ? automationEndChapter : '',
           source: selectedSource,
           name: manhwaName,
-          chapter: chapterNumber
+          chapter: chapterNumber,
+          options: automationOptions
         })
       });
       const data = await response.json();
@@ -929,7 +1014,10 @@ const AdminDashboard: React.FC = () => {
     if (isAutomationRunning) {
       interval = setInterval(async () => {
         try {
-          const response = await fetch('/api/automation/tasks');
+          const token = await auth.currentUser?.getIdToken();
+          const response = await fetch('/api/automation/tasks', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
           const data = await response.json();
           const currentTask = data.tasks.find((t: any) => t.id === currentTaskId);
           
@@ -938,9 +1026,12 @@ const AdminDashboard: React.FC = () => {
             setProgress(currentTask.progress || 0);
             if (currentTask.status !== 'running' && currentTask.status !== 'pending') {
               setIsAutomationRunning(false);
-              if (currentTask.status === 'completed' && currentTask.images?.length) {
-                setScrapedImages(currentTask.images);
-                setScrapedChapterLabel(currentTask.chapterLabel || '');
+              if (currentTask.status === 'completed' || currentTask.status === 'done') {
+                setCompletedTaskData(currentTask);
+                if (currentTask.images?.length) {
+                  setScrapedImages(currentTask.images);
+                  setScrapedChapterLabel(currentTask.chapterLabel || '');
+                }
               }
             }
           }
@@ -958,7 +1049,10 @@ const AdminDashboard: React.FC = () => {
     const fetchReadiness = async () => {
       try {
         setAutomationReadiness(prev => ({ ...prev, loading: true }));
-        const response = await fetch('/api/automation/readiness');
+        const token = await auth.currentUser?.getIdToken();
+        const response = await fetch('/api/automation/readiness', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await response.json();
         setAutomationReadiness({
           loading: false,
@@ -981,7 +1075,7 @@ const AdminDashboard: React.FC = () => {
 
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [scrapedChapterLabel, setScrapedChapterLabel] = useState('');
-  const [activeAutomationSection, setActiveAutomationSection] = useState<'scraper' | 'ai' | 'staff'>('scraper');
+  const [activeAutomationSection, setActiveAutomationSection] = useState<'pipeline' | 'scraper' | 'ai' | 'staff'>('pipeline');
 
   const isRangeScraper = selectedSource === 'Naver' || selectedSource === 'Kakao';
   const isScrapeActionDisabled = isAutomationRunning || (isRangeScraper
@@ -1036,11 +1130,16 @@ const AdminDashboard: React.FC = () => {
 
   const NAV_ITEMS = ALL_NAV_ITEMS.filter(tab => allowedTabs.includes(tab.id));
 
-  // Mobile bottom nav: show first 5 items
-  const MOBILE_NAV = NAV_ITEMS.slice(0, 5);
+  // Mobile bottom nav: show all items since we have flex-wrap
+  const MOBILE_NAV = NAV_ITEMS;
 
   return (
     <div className="h-screen overflow-hidden bg-black text-white flex flex-col md:flex-row" dir={dir}>
+      {showAdminNav && (
+        <style>{`
+          #layout-mobile-nav { display: none !important; }
+        `}</style>
+      )}
 
       {/* ═══════════════════════ DESKTOP SIDEBAR ═══════════════════════ */}
       <aside className="hidden md:flex flex-col w-[220px] shrink-0 h-screen bg-gradient-to-b from-[#080808] to-[#040404] border-r border-white/[0.03]">
@@ -2227,6 +2326,11 @@ const AdminDashboard: React.FC = () => {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                  <button onClick={() => setTypesetChapter({ manhwaId: editingManhwa.id, chapter: ch })}
+                                    className="p-1.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg transition-all"
+                                    title={language === 'ar' ? 'محرر تبييض وترجمة الفصول' : 'Visual Typesetting Editor'}>
+                                    <Sparkles size={14} />
+                                  </button>
                                   <button onClick={() => { setEditingChapterId(ch.id); setEditChapterTitle(ch.title || ''); setEditChapterFiles([]); setEditChapterDriveLink(''); }}
                                     className="p-1.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-all">
                                     <Edit3 size={14} />
@@ -2260,18 +2364,16 @@ const AdminDashboard: React.FC = () => {
               {/* ── Section tabs ── */}
               <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                 {[
-                  { id: 'scraper', icon: Download, label: language === 'ar' ? 'السحب' : 'Scraper', color: 'blue' },
-                  { id: 'ai',      icon: Cpu,      label: language === 'ar' ? 'الذكاء الاصطناعي' : 'AI Tools', color: 'purple' },
-                  { id: 'staff',   icon: Upload,   label: language === 'ar' ? 'الستاف' : 'Staff',   color: 'emerald' },
+                  { id: 'pipeline', icon: Zap, label: language === 'ar' ? 'استوديو الإنتاج' : 'Pipeline Studio', color: 'blue' },
+                  { id: 'staff',    icon: Upload, label: language === 'ar' ? 'الستاف' : 'Staff', color: 'emerald' },
                 ].map(tab => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveAutomationSection(tab.id as any)}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-xs whitespace-nowrap transition-all border ${
-                      activeAutomationSection === tab.id
+                      activeAutomationSection === tab.id || (activeAutomationSection !== 'staff' && tab.id === 'pipeline')
                         ? tab.color === 'blue'    ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-600/10'
-                        : tab.color === 'purple'  ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-600/10'
-                        :                          'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-600/10'
+                        : 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-600/10'
                         : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
                     }`}
                   >
@@ -2286,104 +2388,129 @@ const AdminDashboard: React.FC = () => {
                 {/* ── LEFT: forms ── */}
                 <div className="lg:col-span-2 space-y-5">
 
-                  {/* SCRAPER */}
-                  {activeAutomationSection === 'scraper' && (
-                    <motion.div key="scraper" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center shrink-0"><Download size={20} /></div>
-                        <div>
-                          <h3 className="font-black text-sm">{language === 'ar' ? 'أدوات السحب' : 'Scraper'}</h3>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'Naver · Kakao · AIO' : 'Naver · Kakao · AIO'}</p>
+                  {/* PIPELINE STUDIO */}
+                  {(activeAutomationSection === 'pipeline' || activeAutomationSection === 'scraper' || activeAutomationSection === 'ai') && (
+                    <motion.div key="pipeline" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+                      
+                      {/* Source Card */}
+                      <div className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4 shadow-xl shadow-black/40">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center shrink-0"><Link size={20} /></div>
+                          <div>
+                            <h3 className="font-black text-sm">{language === 'ar' ? 'الهدف والمصدر' : 'Source & Target'}</h3>
+                            <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'حدد مصدر المانهوا والمعرف' : 'Select origin and identifier'}</p>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Source selector */}
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['Naver', 'Kakao', 'AIO'] as const).map(src => (
-                          <button key={src} onClick={() => setSelectedSource(src)}
-                            className={`py-2.5 rounded-xl font-black text-xs transition-all border ${
-                              selectedSource === src ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
-                            }`}>{src}</button>
-                        ))}
-                      </div>
+                        {/* Source selector */}
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['Naver', 'Kakao', 'AIO'] as const).map(src => (
+                            <button key={src} onClick={() => setSelectedSource(src)}
+                              className={`py-2.5 rounded-xl font-black text-xs transition-all border ${
+                                selectedSource === src ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-500/20' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
+                              }`}>{src}</button>
+                          ))}
+                        </div>
 
-                      {/* Fields */}
-                      {isRangeScraper ? (
-                        <div className="space-y-3">
+                        {/* Fields */}
+                        {isRangeScraper ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'المعرّف ID' : 'Series ID'}</label>
+                              <input type="text" value={automationSeriesId} onChange={e => setAutomationSeriesId(e.target.value)}
+                                className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all"
+                                placeholder={language === 'ar' ? 'مثلاً: 848496' : 'e.g. 848496'} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'من فصل' : 'From'}</label>
+                                <input type="number" min="1" value={automationStartChapter} onChange={e => setAutomationStartChapter(e.target.value)}
+                                  className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="1" />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'إلى فصل' : 'To'}</label>
+                                <input type="number" min="1" value={automationEndChapter} onChange={e => setAutomationEndChapter(e.target.value)}
+                                  className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="5" />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'المعرّف ID' : 'Series ID'}</label>
-                            <input type="text" value={automationSeriesId} onChange={e => setAutomationSeriesId(e.target.value)}
-                              className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all"
-                              placeholder={language === 'ar' ? 'مثلاً: 848496' : 'e.g. 848496'} />
+                            <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'رابط المانهوا' : 'Manhwa URL'}</label>
+                            <input type="text" value={automationUrl} onChange={e => setAutomationUrl(e.target.value)}
+                              className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="https://..." />
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'من فصل' : 'From'}</label>
-                              <input type="number" min="1" value={automationStartChapter} onChange={e => setAutomationStartChapter(e.target.value)}
-                                className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="1" />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'إلى فصل' : 'To'}</label>
-                              <input type="number" min="1" value={automationEndChapter} onChange={e => setAutomationEndChapter(e.target.value)}
-                                className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="5" />
-                            </div>
+                        )}
+                      </div>
+
+                      {/* Config Card */}
+                      <div className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4 shadow-xl shadow-black/40">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center shrink-0"><Cpu size={20} /></div>
+                          <div>
+                            <h3 className="font-black text-sm">{language === 'ar' ? 'محرك المعالجة' : 'Processing Engine'}</h3>
+                            <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'تحديد وتخصيص مسار العمل' : 'Configure the execution flow'}</p>
                           </div>
                         </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'رابط المانهوا' : 'Manhwa URL'}</label>
-                          <input type="text" value={automationUrl} onChange={e => setAutomationUrl(e.target.value)}
-                            className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="https://..." />
-                        </div>
-                      )}
 
-                      <button onClick={() => startAutomation('scrape')} disabled={isScrapeActionDisabled}
-                        className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-600/10">
-                        {isAutomationRunning
-                          ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                          : <Zap size={16} />}
-                        <span>{language === 'ar' ? 'بدء السحب' : 'Start Scraping'}</span>
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {/* AI */}
-                  {activeAutomationSection === 'ai' && (
-                    <motion.div key="ai" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center shrink-0"><Cpu size={20} /></div>
-                        <div>
-                          <h3 className="font-black text-sm">{language === 'ar' ? 'معالجة الذكاء الاصطناعي' : 'AI Processing'}</h3>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'تبييض · ترجمة · OCR' : 'In-paint · Translate · OCR'}</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {([
+                            { id: 'scrape', opts: { scrape: true, translate: false }, icon: Download, label: language === 'ar' ? 'سحب فقط' : 'Scrape Only', desc: language === 'ar' ? 'تنزيل الخام' : 'RAW download', color: 'blue' },
+                            { id: 'translate', opts: { scrape: false, translate: true }, icon: Sparkles, label: language === 'ar' ? 'ترجمة فقط' : 'Translate Only', desc: language === 'ar' ? 'تبييض + ترجمة' : 'AI process', color: 'purple' },
+                            { id: 'full', opts: { scrape: true, translate: true }, icon: Zap, label: language === 'ar' ? 'خط كامل' : 'Full Pipeline', desc: language === 'ar' ? 'سحب + ترجمة' : 'Scrape + AI', color: 'amber' },
+                          ] as const).map(mode => {
+                            const isActive = automationOptions.scrape === mode.opts.scrape && automationOptions.translate === mode.opts.translate;
+                            return (
+                              <button key={mode.id} onClick={() => setAutomationOptions(mode.opts)}
+                                className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center gap-1.5 transition-all ${
+                                  isActive
+                                    ? mode.color === 'blue' ? 'bg-blue-500/10 border-blue-500/50 shadow-lg shadow-blue-500/10'
+                                    : mode.color === 'purple' ? 'bg-purple-500/10 border-purple-500/50 shadow-lg shadow-purple-500/10'
+                                    : 'bg-amber-500/10 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                                    : 'bg-white/[0.02] border-white/[0.04] opacity-50 hover:opacity-100'
+                                }`}>
+                                <mode.icon size={20} className={
+                                  isActive
+                                    ? mode.color === 'blue' ? 'text-blue-400' : mode.color === 'purple' ? 'text-purple-400' : 'text-amber-400'
+                                    : 'text-neutral-500'
+                                } />
+                                <p className="font-black text-[11px]">{mode.label}</p>
+                                <p className="text-[8px] text-neutral-400 leading-tight">{mode.desc}</p>
+                              </button>
+                            );
+                          })}
                         </div>
+
+                        {!automationReadiness.ready && automationOptions.translate && (
+                          <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 space-y-1 mt-2">
+                            <p className="text-[11px] font-black text-red-300">
+                              {language === 'ar' ? 'أدوات AI غير جاهزة للعمل' : 'AI tools are not ready'}
+                            </p>
+                            <p className="text-[10px] text-red-200/80">Detect: {automationReadiness.detectReason}</p>
+                            <p className="text-[10px] text-red-200/80">Translate: {automationReadiness.translateReason}</p>
+                          </div>
+                        )}
+
+                        <button onClick={() => startAutomation()} disabled={isAutomationRunning || (!automationOptions.scrape && !automationOptions.translate) || (automationOptions.translate && !automationReadiness.ready)}
+                          className={`w-full py-4 mt-2 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-30 ${
+                            automationOptions.scrape && !automationOptions.translate ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20'
+                            : !automationOptions.scrape && automationOptions.translate ? 'bg-purple-600 hover:bg-purple-500 shadow-purple-500/20'
+                            : automationOptions.scrape && automationOptions.translate ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 shadow-purple-500/20'
+                            : 'bg-neutral-700'
+                          }`}>
+                          {isAutomationRunning ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Play size={18} />}
+                          <span className="text-sm tracking-wide">{
+                            !automationOptions.scrape && !automationOptions.translate
+                              ? (language === 'ar' ? 'اختر وضع التشغيل' : 'Select a mode')
+                              : automationOptions.scrape && !automationOptions.translate
+                                ? (language === 'ar' ? 'بدء السحب' : 'Start Scraping')
+                                : !automationOptions.scrape && automationOptions.translate
+                                  ? (language === 'ar' ? 'بدء الترجمة والتبييض' : 'Start AI Processing')
+                                  : (language === 'ar' ? 'بدء خط الإنتاج الكامل' : 'Run Full Pipeline')
+                          }</span>
+                        </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.04] space-y-2">
-                          <Eraser size={18} className="text-yellow-400" />
-                          <p className="font-black text-sm">{language === 'ar' ? 'التبييض' : 'In-painting'}</p>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'تنظيف الفقاعات' : 'Clean bubbles'}</p>
-                        </div>
-                        <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.04] space-y-2">
-                          <FileText size={18} className="text-emerald-400" />
-                          <p className="font-black text-sm">{language === 'ar' ? 'الترجمة' : 'Translation'}</p>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'TsengScans AI' : 'TsengScans AI'}</p>
-                        </div>
-                      </div>
-                      {!automationReadiness.ready && (
-                        <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 space-y-1">
-                          <p className="text-[11px] font-black text-red-300">
-                            {language === 'ar' ? 'أدوات AI غير جاهزة' : 'AI tools are not ready'}
-                          </p>
-                          <p className="text-[10px] text-red-200/80">Detect: {automationReadiness.detectReason}</p>
-                          <p className="text-[10px] text-red-200/80">Translate: {automationReadiness.translateReason}</p>
-                        </div>
-                      )}
 
-                      <button onClick={() => startAutomation('ai')} disabled={isAutomationRunning || automationReadiness.loading || !automationReadiness.ready}
-                        className="w-full py-3.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-purple-600/10">
-                        {isAutomationRunning || automationReadiness.loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Terminal size={16} />}
-                        <span>{language === 'ar' ? 'تشغيل خط الإنتاج' : 'Run Pipeline'}</span>
-                      </button>
                     </motion.div>
                   )}
 
@@ -2456,6 +2583,40 @@ const AdminDashboard: React.FC = () => {
                           className="h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
                       </div>
                     )}
+                    
+                    {!isAutomationRunning && completedTaskData && (completedTaskData.driveLinks?.raw || completedTaskData.driveLinks?.translated || completedTaskData.hasRawPath || completedTaskData.hasTranslatedPath) && (
+                      <div className="p-4 bg-white/[0.03] border-b border-white/[0.03] flex flex-wrap items-center justify-center gap-3">
+                        {/* RAW — Google Drive */}
+                        {completedTaskData.driveLinks?.raw && (
+                          <a href={completedTaskData.driveLinks.raw} target="_blank" rel="noreferrer" className="w-full md:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
+                            <Globe size={14} />
+                            {language === 'ar' ? 'الخام من درايف' : 'RAW (Drive)'}
+                          </a>
+                        )}
+                        {/* RAW — ZIP */}
+                        {completedTaskData.hasRawPath && (
+                          <button onClick={() => downloadLocalZip(completedTaskData.id, 'raw')} className="w-full md:w-auto px-5 py-2.5 bg-blue-500/70 hover:bg-blue-500 text-white text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 border border-blue-400/20">
+                            <Download size={14} />
+                            {language === 'ar' ? 'الخام ZIP' : 'RAW (ZIP)'}
+                          </button>
+                        )}
+                        {/* Translated — Google Drive */}
+                        {completedTaskData.driveLinks?.translated && (
+                          <a href={completedTaskData.driveLinks.translated} target="_blank" rel="noreferrer" className="w-full md:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+                            <Globe size={14} />
+                            {language === 'ar' ? 'المترجم من درايف' : 'Translated (Drive)'}
+                          </a>
+                        )}
+                        {/* Translated — ZIP */}
+                        {completedTaskData.hasTranslatedPath && (
+                          <button onClick={() => downloadLocalZip(completedTaskData.id, 'translated')} className="w-full md:w-auto px-5 py-2.5 bg-emerald-500/70 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 border border-emerald-400/20">
+                            <Download size={14} />
+                            {language === 'ar' ? 'المترجم ZIP' : 'Translated (ZIP)'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <div ref={logContainerRef} className="p-4 h-56 font-mono text-[11px] text-neutral-400 overflow-y-auto space-y-1 custom-scrollbar bg-black">
                       {automationLogs.length === 0
                         ? <p className="text-neutral-700 italic">{language === 'ar' ? 'في انتظار الأوامر...' : 'Waiting for input...'}</p>
@@ -2549,39 +2710,46 @@ const AdminDashboard: React.FC = () => {
         </AnimatePresence>
         </div>
       </main>
+      {/* Mobile spacer to avoid overlap with bottom navigation */}
+      <div className="pb-20 md:pb-0"></div>
 
       {/* ═══════════════════════ MOBILE BOTTOM TAB BAR ═══════════════════════ */}
-      <div className="fixed bottom-3 left-3 right-3 z-30 md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <nav className="bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/[0.06] rounded-2xl px-1 shadow-2xl shadow-black/60">
-          <div className="flex items-center justify-around py-1">
-            {MOBILE_NAV.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative flex flex-col items-center gap-0.5 py-2 px-3 rounded-xl transition-all active:scale-90 ${
-                  activeTab === tab.id ? 'text-white' : 'text-neutral-600'
-                }`}
-              >
-                {activeTab === tab.id && (
-                  <motion.div layoutId="mobile-active" className="absolute inset-0 rounded-xl" style={{ background: 'rgba(var(--accent-rgb), 0.12)' }} transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }} />
-                )}
-                <tab.icon size={18} className="relative z-10" style={activeTab === tab.id ? { color: 'var(--accent-color)' } : {}} />
-                <span className="text-[8px] font-bold relative z-10">{tab.label}</span>
-                {tab.badge && tab.badge > 0 && (
-                  <span className="absolute top-1 right-1 z-20 w-1.5 h-1.5 bg-red-500 rounded-full" />
-                )}
-              </button>
-            ))}
+      {showAdminNav && (
+        <div className="fixed bottom-3 left-3 right-3 z-30 md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <nav className="bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/[0.06] rounded-2xl p-1 shadow-2xl shadow-black/60 flex items-center gap-1">
+            <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
+              {MOBILE_NAV.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`shrink-0 w-[72px] relative flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-all active:scale-90 ${
+                    activeTab === tab.id ? 'text-white' : 'text-neutral-600'
+                  }`}
+                >
+                  {activeTab === tab.id && (
+                    <motion.div layoutId="mobile-active" className="absolute inset-0 rounded-xl" style={{ background: 'rgba(var(--accent-rgb), 0.12)' }} transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }} />
+                  )}
+                  <tab.icon size={18} className="relative z-10" style={activeTab === tab.id ? { color: 'var(--accent-color)' } : {}} />
+                  <span className="text-[8px] font-bold relative z-10">{tab.label}</span>
+                  {tab.badge && tab.badge > 0 && (
+                    <span className="absolute top-1 right-1.5 z-20 w-1.5 h-1.5 bg-red-500 rounded-full" />
+                  )}
+                </button>
+              ))}
+            </div>
+            
+            <div className="w-px h-8 bg-white/[0.06] shrink-0" />
+            
             <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="relative flex flex-col items-center gap-0.5 py-2 px-3 rounded-xl text-neutral-600 active:scale-90 transition-all"
+              onClick={() => setShowAdminNav(false)}
+              className="shrink-0 w-[64px] relative flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl text-emerald-500 hover:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 active:scale-90 transition-all"
             >
-              <Menu size={18} />
-              <span className="text-[8px] font-bold">{language === 'ar' ? 'المزيد' : 'More'}</span>
+              <Home size={18} />
+              <span className="text-[8px] font-bold">{language === 'ar' ? 'الموقع' : 'Site'}</span>
             </button>
-          </div>
-        </nav>
-      </div>
+          </nav>
+        </div>
+      )}
 
       {selectedUser && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center z-50 p-4" onClick={() => setSelectedUser(null)}>
@@ -2646,14 +2814,14 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               {/* Chapter Info */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">{language === 'ar' ? 'رقم الفصل *' : 'Chapter # *'}</label>
-                  <input type="number" placeholder="1" className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:outline-none focus:border-white/[0.06] transition-all" />
+                  <label className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">{language === 'ar' ? 'من الفصل' : 'From Chapter'}</label>
+                  <input type="number" min="1" value={quickUploadStartChapter} onChange={(e) => setQuickUploadStartChapter(e.target.value)} placeholder="1" className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:outline-none focus:border-white/[0.06] transition-all" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">{language === 'ar' ? 'عنوان الفصل' : 'Title (optional)'}</label>
-                  <input type="text" placeholder={language === 'ar' ? 'اختياري' : 'Optional'} className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:outline-none focus:border-white/[0.06] transition-all" />
+                  <label className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">{language === 'ar' ? 'إلى الفصل' : 'To Chapter'}</label>
+                  <input type="number" min="1" value={quickUploadEndChapter} onChange={(e) => setQuickUploadEndChapter(e.target.value)} placeholder="10" className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:outline-none focus:border-white/[0.06] transition-all" />
                 </div>
               </div>
 
@@ -2947,6 +3115,15 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {typesetChapter && (
+        <VisualTypesetter
+          manhwaId={typesetChapter.manhwaId}
+          chapter={typesetChapter.chapter}
+          language={language}
+          onClose={() => setTypesetChapter(null)}
+        />
+      )}
     </div>
   );
 };
