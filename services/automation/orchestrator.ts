@@ -602,13 +602,21 @@ export class AutomationOrchestrator {
             try {
               const stitchedFiles = await stitchVertical(chDir, mergedDir, 5, 800, 88);
               if (stitchedFiles.length > 0) {
-                processingDir = mergedDir;
+                const safeMergedDir = getSafePath(mergedDir);
+                if (safeMergedDir) processingDir = safeMergedDir;
                 this.log(taskId, `🔀 Ch.${chNum}: merged ${images.length} image(s) → ${stitchedFiles.length} strip(s)`, tasks);
               }
             } catch (mergeErr: any) {
               this.log(taskId, `⚠️ Ch.${chNum}: merge skipped (${mergeErr?.message || 'unknown error'})`, tasks);
             }
           }
+
+          const safeProcessingDir = getSafePath(processingDir);
+          if (!safeProcessingDir) {
+            this.log(taskId, `⚠️ Ch.${chNum}: skipped due to unsafe processing directory`, tasks);
+            continue;
+          }
+          processingDir = safeProcessingDir;
 
           let finalFiles = fs.readdirSync(processingDir)
             .filter(f => imagePattern.test(f))
@@ -621,7 +629,8 @@ export class AutomationOrchestrator {
           try {
             const jpgFiles = await convertToJpeg(processingDir, jpgDir, 85);
             if (jpgFiles.length > 0) {
-              processingDir = jpgDir;
+              const safeJpgDir = getSafePath(jpgDir);
+              if (safeJpgDir) processingDir = safeJpgDir;
               finalFiles = jpgFiles
                 .map(filePath => path.basename(filePath))
                 .sort((a, b) => {
@@ -635,14 +644,20 @@ export class AutomationOrchestrator {
           }
 
           const imageUrls: string[] = [];
-          const processingRoot = path.resolve(processingDir);
-          const destRoot = path.resolve(destDir);
+          const processingRoot = fs.realpathSync(processingDir);
+          const destRoot = fs.realpathSync(destDir);
+          const isConvertedToJpg = processingDir === jpgDir;
           finalFiles.forEach((img, idx) => {
-            const ext = path.extname(img) || '.jpg';
+            const ext = isConvertedToJpg ? '.jpg' : (path.extname(img) || '.jpg');
             const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
             const sourcePath = path.resolve(processingDir, img);
             const destPath = path.resolve(destDir, newName);
-            if (!sourcePath.startsWith(`${processingRoot}${path.sep}`) || !destPath.startsWith(`${destRoot}${path.sep}`)) {
+            const sourceReal = fs.realpathSync(sourcePath);
+            const destParentReal = fs.realpathSync(path.dirname(destPath));
+            if (
+              !sourceReal.startsWith(`${processingRoot}${path.sep}`) ||
+              !(destParentReal === destRoot || destParentReal.startsWith(`${destRoot}${path.sep}`))
+            ) {
               this.log(taskId, `⚠️ Ch.${chNum}: skipped unsafe image path "${img}"`, tasks);
               return;
             }
@@ -651,8 +666,14 @@ export class AutomationOrchestrator {
           });
 
           try {
-            fs.rmSync(mergedDir, { recursive: true, force: true });
-            fs.rmSync(jpgDir, { recursive: true, force: true });
+            if (fs.existsSync(mergedDir)) {
+              const safeMergedDir = getSafePath(mergedDir);
+              if (safeMergedDir) fs.rmSync(safeMergedDir, { recursive: true, force: true });
+            }
+            if (fs.existsSync(jpgDir)) {
+              const safeJpgDir = getSafePath(jpgDir);
+              if (safeJpgDir) fs.rmSync(safeJpgDir, { recursive: true, force: true });
+            }
           } catch {}
 
           // Write Firestore chapter record
