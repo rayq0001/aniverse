@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GoogleSyncService } from './googleSync';
-import { convertToWebP } from './tools/sharp-compositor';
+import { convertToJpeg, stitchVertical } from './tools/sharp-compositor';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Fetch with retry + exponential backoff for transient network errors
@@ -127,7 +127,7 @@ export class AutomationOrchestrator {
       const fullPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         result.push(...this.getImageFilesRecursive(fullPath));
-      } else if (entry.isFile() && entry.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
+      } else if (entry.isFile() && entry.name.match(/\.(jpg|jpeg|png|webp|avif)$/i)) {
         result.push(fullPath);
       }
     }
@@ -234,20 +234,27 @@ export class AutomationOrchestrator {
         tasks[taskId].progress = 70;
       }
 
-      // 3.5. OPTIMIZE — Convert final images to WebP with Sharp
+      // 3.5. OPTIMIZE — Convert final images to high-fidelity JPG with Sharp
       const stepStart35 = Date.now();
       const finalImages = this.getImageFilesRecursive(finalPath);
-      let optimizedImages = finalImages;
+      const rawImages = this.getImageFilesRecursive(rawPath);
+      const hasFinalImages = finalImages.length > 0;
+      const optimizationSourceDir = hasFinalImages ? finalPath : rawPath;
+      const optimizationSourceImages = hasFinalImages ? finalImages : rawImages;
+      if (!hasFinalImages && rawImages.length > 0) {
+        this.log(taskId, `⚠️ [STEP 3.5]: Processed output had no images, using ${rawImages.length} raw image(s) instead.`, tasks);
+      }
+      let optimizedImages = optimizationSourceImages;
       try {
-        this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${finalImages.length} images with Sharp...`, tasks);
-        const webpPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'webp');
-        const webpFiles = await convertToWebP(finalPath, webpPath, 85);
-        if (webpFiles.length > 0) {
-          optimizedImages = webpFiles;
-          this.log(taskId, `⏱️ [STEP 3.5] WebP conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
+        this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${optimizationSourceImages.length} images with Sharp...`, tasks);
+        const jpgPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'jpg');
+        const jpgFiles = await convertToJpeg(optimizationSourceDir, jpgPath, 85);
+        if (jpgFiles.length > 0) {
+          optimizedImages = jpgFiles;
+          this.log(taskId, `⏱️ [STEP 3.5] High-fidelity JPG conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
         }
       } catch (err: any) {
-        this.log(taskId, `ℹ️ WebP optimization skipped (${err?.message}). Using originals.`, tasks);
+        this.log(taskId, `ℹ️ JPG optimization skipped (${err?.message}). Using originals.`, tasks);
       }
       tasks[taskId].progress = 75;
 
@@ -450,6 +457,9 @@ export class AutomationOrchestrator {
     tasks: Record<string, any>
   ) {
     const { source, contentId, startChapter, endChapter, manhwaId } = data;
+    if (!/^[A-Za-z0-9_-]+$/.test(manhwaId)) {
+      throw new Error('Invalid manhwaId format.');
+    }
     const totalChapters = endChapter - startChapter + 1;
 
     try {
@@ -484,28 +494,85 @@ export class AutomationOrchestrator {
         }
 
         // Find downloaded chapter folders inside rawPath (usually nested under title folder)
-        const findChapterDirs = (dir: string): Map<number, string> => {
-          const result = new Map<number, string>();
-          const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const parseChapterNumber = (name: string): number | null => {
+          const numeric = name.match(/^(\d+)$/);
+          if (numeric) return Number(numeric[1]);
+          const tagged = name.match(/(?:chapter|ch|episode|ep)[^\d]{0,3}(\d+)/i);
+          if (tagged) return Number(tagged[1]);
+          return null;
+        };
+
+        const imagePattern = /\.(jpg|jpeg|png|webp|avif)$/i;
+        const rawRoot = fs.realpathSync(rawPath);
+        const getSafePath = (targetPath: string): string | null => {
+          try {
+            const realTargetPath = fs.realpathSync(targetPath);
+            if (realTargetPath === rawRoot || realTargetPath.startsWith(`${rawRoot}${path.sep}`)) {
+              return realTargetPath;
+            }
+            this.log(taskId, `⚠️ Skipping unsafe scrape path: ${targetPath}`, tasks);
+            return null;
+          } catch (err: any) {
+            this.log(taskId, `⚠️ Failed to resolve scrape path "${targetPath}": ${err?.message || 'unknown error'}`, tasks);
+            return null;
+          }
+        };
+
+        const readDirEntriesSafe = (targetPath: string): fs.Dirent[] => {
+          const safePath = getSafePath(targetPath);
+          if (!safePath) return [];
+          try {
+            return fs.readdirSync(safePath, { withFileTypes: true });
+          } catch (err: any) {
+            this.log(taskId, `⚠️ Failed to read scrape directory "${safePath}": ${err?.message || 'unknown error'}`, tasks);
+            return [];
+          }
+        };
+
+        const readImageCount = (targetPath: string): number =>
+          readDirEntriesSafe(targetPath).filter(entry => entry.isFile() && imagePattern.test(entry.name)).length;
+
+        const findChapterDirs = (dir: string, inheritedChapter: number | null = null): Map<number, { dir: string; imageCount: number }> => {
+          const bestByChapter = new Map<number, { dir: string; imageCount: number }>();
+          const safeDir = getSafePath(dir);
+          if (!safeDir) return bestByChapter;
+          const currentDirImageCount = readImageCount(safeDir);
+          const inferredCurrentChapter = inheritedChapter ?? (batchStart === batchEnd ? batchStart : null);
+          if (inferredCurrentChapter !== null && inferredCurrentChapter >= batchStart && inferredCurrentChapter <= batchEnd && currentDirImageCount > 0) {
+            bestByChapter.set(inferredCurrentChapter, { dir: safeDir, imageCount: currentDirImageCount });
+          }
+          const entries = readDirEntriesSafe(safeDir);
 
           for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              const num = parseInt(entry.name);
-              if (!isNaN(num) && num >= batchStart && num <= batchEnd) {
-                // This is a chapter directory with numeric name
-                const images = fs.readdirSync(fullPath).filter(f => f.match(/\.(jpg|jpeg|png|webp)$/i));
-                if (images.length > 0) {
-                  result.set(num, fullPath);
-                }
-              } else {
-                // Recurse into title subdirectories
-                const sub = findChapterDirs(fullPath);
-                sub.forEach((v, k) => result.set(k, v));
+            const fullPath = path.join(safeDir, entry.name);
+            if (!entry.isDirectory()) continue;
+
+            const chapterFromName = parseChapterNumber(entry.name);
+            const chapterNum = chapterFromName ?? inheritedChapter;
+            const directImageCount = readImageCount(fullPath);
+
+            if (chapterNum !== null && chapterNum >= batchStart && chapterNum <= batchEnd && directImageCount > 0) {
+              const current = bestByChapter.get(chapterNum);
+              if (!current || directImageCount > current.imageCount) {
+                bestByChapter.set(chapterNum, { dir: fullPath, imageCount: directImageCount });
+              }
+            } else if (chapterNum === null && batchStart === batchEnd && directImageCount > 0) {
+              // Single-chapter batches may have non-numeric wrapper folders from the scraper.
+              const current = bestByChapter.get(batchStart);
+              if (!current || directImageCount > current.imageCount) {
+                bestByChapter.set(batchStart, { dir: fullPath, imageCount: directImageCount });
               }
             }
+
+            const nested = findChapterDirs(fullPath, chapterNum);
+            nested.forEach((nestedData, nestedChapter) => {
+              const current = bestByChapter.get(nestedChapter);
+              if (!current || nestedData.imageCount > current.imageCount) {
+                bestByChapter.set(nestedChapter, nestedData);
+              }
+            });
           }
-          return result;
+          return bestByChapter;
         };
 
         const chapterDirs = findChapterDirs(rawPath);
@@ -514,25 +581,109 @@ export class AutomationOrchestrator {
         // Process each chapter: copy to uploads and create Firestore record
         const uploadsBase = path.join(process.cwd(), 'uploads', 'manhwas', manhwaId, 'chapters');
 
-        for (const [chNum, chDir] of chapterDirs) {
+        for (const [chNum, chapterData] of chapterDirs) {
+          const chDir = chapterData.dir;
           const destDir = path.join(uploadsBase, String(chNum));
           if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
           const images = fs.readdirSync(chDir)
-            .filter(f => f.match(/\.(jpg|jpeg|png|webp)$/i))
+            .filter(f => imagePattern.test(f))
             .sort((a, b) => {
               const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
               const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
               return nA - nB;
             });
 
+          let processingDir = chDir;
+          const mergedDir = path.join(chDir, '_merged');
+          const jpgDir = path.join(chDir, '_jpg');
+
+          if (images.length > 1) {
+            try {
+              const stitchedFiles = await stitchVertical(chDir, mergedDir, 5, 800, 88);
+              if (stitchedFiles.length > 0) {
+                const safeMergedDir = getSafePath(mergedDir);
+                if (safeMergedDir) processingDir = safeMergedDir;
+                this.log(taskId, `🔀 Ch.${chNum}: merged ${images.length} image(s) → ${stitchedFiles.length} strip(s)`, tasks);
+              }
+            } catch (mergeErr: any) {
+              this.log(taskId, `⚠️ Ch.${chNum}: merge skipped (${mergeErr?.message || 'unknown error'})`, tasks);
+            }
+          }
+
+          const safeProcessingDir = getSafePath(processingDir);
+          if (!safeProcessingDir) {
+            this.log(taskId, `⚠️ Ch.${chNum}: skipped due to unsafe processing directory`, tasks);
+            continue;
+          }
+          processingDir = safeProcessingDir;
+
+          let finalFiles = fs.readdirSync(processingDir)
+            .filter(f => imagePattern.test(f))
+            .sort((a, b) => {
+              const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+              const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+              return nA - nB;
+            });
+
+          let convertedToJpg = false;
+          try {
+            const jpgFiles = await convertToJpeg(processingDir, jpgDir, 85);
+            if (jpgFiles.length > 0) {
+              const safeJpgDir = getSafePath(jpgDir);
+              if (safeJpgDir) {
+                processingDir = safeJpgDir;
+                convertedToJpg = true;
+              }
+              finalFiles = jpgFiles
+                .map(filePath => path.basename(filePath))
+                .sort((a, b) => {
+                  const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+                  const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+                  return nA - nB;
+                });
+            }
+          } catch (jpgErr: any) {
+            this.log(taskId, `⚠️ Ch.${chNum}: JPG conversion skipped (${jpgErr?.message || 'unknown error'})`, tasks);
+          }
+
           const imageUrls: string[] = [];
-          images.forEach((img, idx) => {
-            const ext = path.extname(img);
+          const processingRoot = fs.realpathSync(processingDir);
+          const destRoot = fs.realpathSync(destDir);
+          finalFiles.forEach((img, idx) => {
+            const extName = path.extname(img);
+            if (!convertedToJpg && !extName) {
+              this.log(taskId, `⚠️ Ch.${chNum}: image "${img}" has no extension, forcing .jpg`, tasks);
+            }
+            const ext = convertedToJpg ? '.jpg' : (extName || '.jpg');
             const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
-            fs.copyFileSync(path.join(chDir, img), path.join(destDir, newName));
+            const sourcePath = path.resolve(processingDir, img);
+            const destPath = path.resolve(destDir, newName);
+            const sourceReal = fs.realpathSync(sourcePath);
+            const destParentReal = fs.realpathSync(path.dirname(destPath));
+            if (
+              !sourceReal.startsWith(`${processingRoot}${path.sep}`) ||
+              !(destParentReal === destRoot || destParentReal.startsWith(`${destRoot}${path.sep}`))
+            ) {
+              this.log(taskId, `⚠️ Ch.${chNum}: skipped unsafe image path "${img}"`, tasks);
+              return;
+            }
+            fs.copyFileSync(sourcePath, destPath);
             imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${newName}`);
           });
+
+          try {
+            if (fs.existsSync(mergedDir)) {
+              const safeMergedDir = getSafePath(mergedDir);
+              if (safeMergedDir) fs.rmSync(safeMergedDir, { recursive: true, force: true });
+            }
+            if (fs.existsSync(jpgDir)) {
+              const safeJpgDir = getSafePath(jpgDir);
+              if (safeJpgDir) fs.rmSync(safeJpgDir, { recursive: true, force: true });
+            }
+          } catch (cleanupErr: any) {
+            this.log(taskId, `⚠️ Ch.${chNum}: cleanup warning (${cleanupErr?.message || 'unknown error'})`, tasks);
+          }
 
           // Write Firestore chapter record
           try {

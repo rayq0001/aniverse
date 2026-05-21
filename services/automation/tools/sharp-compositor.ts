@@ -9,13 +9,19 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
+const buildHighFidelityJpegOptions = (quality: number) => ({
+  quality,
+  mozjpeg: true,
+  chromaSubsampling: '4:4:4' as const
+});
+
 /**
- * Convert all images in a directory to optimized WebP format.
- * Reduces file sizes by ~40% while maintaining quality.
+ * Convert all images in a directory to optimized high-fidelity JPG format.
+ * Uses MozJPEG with 4:4:4 chroma to keep text edges crisp while compressing output.
  */
-export async function convertToWebP(inputDir: string, outputDir: string, quality = 85): Promise<string[]> {
+export async function convertToJpeg(inputDir: string, outputDir: string, quality = 85): Promise<string[]> {
   fs.mkdirSync(outputDir, { recursive: true });
-  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'];
   const files = fs.readdirSync(inputDir)
     .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
     .sort();
@@ -28,10 +34,12 @@ export async function convertToWebP(inputDir: string, outputDir: string, quality
     const batch = files.slice(i, i + batchSize);
     const promises = batch.map(async (fname) => {
       const inputPath = path.join(inputDir, fname);
-      const outputPath = path.join(outputDir, path.parse(fname).name + '.webp');
+      const outputPath = path.join(outputDir, path.parse(fname).name + '.jpg');
       
       await sharp(inputPath)
-        .webp({ quality })
+        // JPEG has no alpha channel; transparent pixels are flattened to white.
+        .flatten({ background: '#ffffff' })
+        .jpeg(buildHighFidelityJpegOptions(quality))
         .toFile(outputPath);
       
       return outputPath;
@@ -50,7 +58,7 @@ export async function convertToWebP(inputDir: string, outputDir: string, quality
  */
 export async function resizeImages(inputDir: string, outputDir: string, maxWidth = 800): Promise<void> {
   fs.mkdirSync(outputDir, { recursive: true });
-  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'];
   const files = fs.readdirSync(inputDir)
     .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
     .sort();
@@ -145,9 +153,12 @@ export async function stitchVertical(
     }
 
     if (resizedBuffers.length === 1) {
-      const outName = `${String(g + 1).padStart(3, '0')}.webp`;
+      const outName = `${String(g + 1).padStart(3, '0')}.jpg`;
       const outPath = path.join(outputDir, outName);
-      await sharp(resizedBuffers[0].buffer).webp({ quality }).toFile(outPath);
+      await sharp(resizedBuffers[0].buffer)
+        .flatten({ background: '#ffffff' })
+        .jpeg(buildHighFidelityJpegOptions(quality))
+        .toFile(outPath);
       results.push(outName);
       continue;
     }
@@ -162,7 +173,7 @@ export async function stitchVertical(
       currentY += img.height;
     }
 
-    const outName = `${String(g + 1).padStart(3, '0')}.webp`;
+    const outName = `${String(g + 1).padStart(3, '0')}.jpg`;
     const outPath = path.join(outputDir, outName);
 
     await sharp({
@@ -170,11 +181,11 @@ export async function stitchVertical(
         width,
         height: totalHeight,
         channels: 3,
-        background: { r: 0, g: 0, b: 0 }
+        background: { r: 255, g: 255, b: 255 }
       }
     })
       .composite(composites)
-      .webp({ quality })
+      .jpeg(buildHighFidelityJpegOptions(quality))
       .toFile(outPath);
 
     results.push(outName);
