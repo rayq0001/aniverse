@@ -536,6 +536,11 @@ export class AutomationOrchestrator {
           const bestByChapter = new Map<number, { dir: string; imageCount: number }>();
           const safeDir = getSafePath(dir);
           if (!safeDir) return bestByChapter;
+          const currentDirImageCount = readImageCount(safeDir);
+          const inferredCurrentChapter = inheritedChapter ?? (batchStart === batchEnd ? batchStart : null);
+          if (inferredCurrentChapter !== null && inferredCurrentChapter >= batchStart && inferredCurrentChapter <= batchEnd && currentDirImageCount > 0) {
+            bestByChapter.set(inferredCurrentChapter, { dir: safeDir, imageCount: currentDirImageCount });
+          }
           const entries = readDirEntriesSafe(safeDir);
 
           for (const entry of entries) {
