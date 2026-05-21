@@ -17,6 +17,7 @@ const buildHighFidelityJpegOptions = (quality: number) => ({
 
 /**
  * Convert all images in a directory to optimized high-fidelity JPG format.
+ * Uses MozJPEG with 4:4:4 chroma to keep text edges crisp while compressing output.
  */
 export async function convertToJpeg(inputDir: string, outputDir: string, quality = 85): Promise<string[]> {
   fs.mkdirSync(outputDir, { recursive: true });
@@ -36,6 +37,7 @@ export async function convertToJpeg(inputDir: string, outputDir: string, quality
       const outputPath = path.join(outputDir, path.parse(fname).name + '.jpg');
       
       await sharp(inputPath)
+        // JPEG has no alpha channel; transparent pixels are flattened to white.
         .flatten({ background: '#ffffff' })
         .jpeg(buildHighFidelityJpegOptions(quality))
         .toFile(outputPath);
