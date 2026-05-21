@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GoogleSyncService } from './googleSync';
-import { convertToWebP } from './tools/sharp-compositor';
+import { convertToJpeg } from './tools/sharp-compositor';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Fetch with retry + exponential backoff for transient network errors
@@ -234,20 +234,20 @@ export class AutomationOrchestrator {
         tasks[taskId].progress = 70;
       }
 
-      // 3.5. OPTIMIZE — Convert final images to WebP with Sharp
+      // 3.5. OPTIMIZE — Convert final images to high-fidelity JPG with Sharp
       const stepStart35 = Date.now();
       const finalImages = this.getImageFilesRecursive(finalPath);
       let optimizedImages = finalImages;
       try {
         this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${finalImages.length} images with Sharp...`, tasks);
-        const webpPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'webp');
-        const webpFiles = await convertToWebP(finalPath, webpPath, 85);
-        if (webpFiles.length > 0) {
-          optimizedImages = webpFiles;
-          this.log(taskId, `⏱️ [STEP 3.5] WebP conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
+        const jpgPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'jpg');
+        const jpgFiles = await convertToJpeg(finalPath, jpgPath, 85);
+        if (jpgFiles.length > 0) {
+          optimizedImages = jpgFiles;
+          this.log(taskId, `⏱️ [STEP 3.5] High-fidelity JPG conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
         }
       } catch (err: any) {
-        this.log(taskId, `ℹ️ WebP optimization skipped (${err?.message}). Using originals.`, tasks);
+        this.log(taskId, `ℹ️ JPG optimization skipped (${err?.message}). Using originals.`, tasks);
       }
       tasks[taskId].progress = 75;
 
