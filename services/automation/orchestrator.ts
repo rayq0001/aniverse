@@ -127,7 +127,7 @@ export class AutomationOrchestrator {
       const fullPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         result.push(...this.getImageFilesRecursive(fullPath));
-      } else if (entry.isFile() && entry.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
+      } else if (entry.isFile() && entry.name.match(/\.(jpg|jpeg|png|webp|avif)$/i)) {
         result.push(fullPath);
       }
     }
@@ -491,27 +491,50 @@ export class AutomationOrchestrator {
         }
 
         // Find downloaded chapter folders inside rawPath (usually nested under title folder)
-        const findChapterDirs = (dir: string): Map<number, string> => {
-          const result = new Map<number, string>();
+        const parseChapterNumber = (name: string): number | null => {
+          const numeric = name.match(/^(\d+)$/);
+          if (numeric) return Number(numeric[1]);
+          const tagged = name.match(/(?:chapter|ch|episode|ep)[^\d]{0,3}(\d+)/i);
+          if (tagged) return Number(tagged[1]);
+          return null;
+        };
+
+        const findChapterDirs = (dir: string, inheritedChapter: number | null = null): Map<number, string> => {
+          const bestByChapter = new Map<number, { dir: string; imageCount: number }>();
           const entries = fs.readdirSync(dir, { withFileTypes: true });
 
           for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              const num = parseInt(entry.name);
-              if (!isNaN(num) && num >= batchStart && num <= batchEnd) {
-                // This is a chapter directory with numeric name
-                const images = fs.readdirSync(fullPath).filter(f => f.match(/\.(jpg|jpeg|png|webp)$/i));
-                if (images.length > 0) {
-                  result.set(num, fullPath);
-                }
-              } else {
-                // Recurse into title subdirectories
-                const sub = findChapterDirs(fullPath);
-                sub.forEach((v, k) => result.set(k, v));
+            if (!entry.isDirectory()) continue;
+
+            const chapterFromName = parseChapterNumber(entry.name);
+            const chapterNum = chapterFromName ?? inheritedChapter;
+            const directImages = fs.readdirSync(fullPath).filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i));
+
+            if (chapterNum !== null && chapterNum >= batchStart && chapterNum <= batchEnd && directImages.length > 0) {
+              const current = bestByChapter.get(chapterNum);
+              if (!current || directImages.length > current.imageCount) {
+                bestByChapter.set(chapterNum, { dir: fullPath, imageCount: directImages.length });
+              }
+            } else if (chapterNum === null && batchStart === batchEnd && directImages.length > 0) {
+              const current = bestByChapter.get(batchStart);
+              if (!current || directImages.length > current.imageCount) {
+                bestByChapter.set(batchStart, { dir: fullPath, imageCount: directImages.length });
               }
             }
+
+            const nested = findChapterDirs(fullPath, chapterNum);
+            nested.forEach((nestedDir, nestedChapter) => {
+              const nestedCount = fs.readdirSync(nestedDir).filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i)).length;
+              const current = bestByChapter.get(nestedChapter);
+              if (!current || nestedCount > current.imageCount) {
+                bestByChapter.set(nestedChapter, { dir: nestedDir, imageCount: nestedCount });
+              }
+            });
           }
+
+          const result = new Map<number, string>();
+          bestByChapter.forEach((value, key) => result.set(key, value.dir));
           return result;
         };
 
@@ -526,7 +549,7 @@ export class AutomationOrchestrator {
           if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
           const images = fs.readdirSync(chDir)
-            .filter(f => f.match(/\.(jpg|jpeg|png|webp)$/i))
+            .filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i))
             .sort((a, b) => {
               const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
               const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
