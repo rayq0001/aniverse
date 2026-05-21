@@ -635,16 +635,24 @@ export class AutomationOrchestrator {
           }
 
           const imageUrls: string[] = [];
+          const processingRoot = path.resolve(processingDir);
+          const destRoot = path.resolve(destDir);
           finalFiles.forEach((img, idx) => {
             const ext = path.extname(img) || '.jpg';
             const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
-            fs.copyFileSync(path.join(processingDir, img), path.join(destDir, newName));
+            const sourcePath = path.resolve(processingDir, img);
+            const destPath = path.resolve(destDir, newName);
+            if (!sourcePath.startsWith(`${processingRoot}${path.sep}`) || !destPath.startsWith(`${destRoot}${path.sep}`)) {
+              this.log(taskId, `⚠️ Ch.${chNum}: skipped unsafe image path "${img}"`, tasks);
+              return;
+            }
+            fs.copyFileSync(sourcePath, destPath);
             imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${newName}`);
           });
 
           try {
-            if (fs.existsSync(mergedDir)) fs.rmSync(mergedDir, { recursive: true, force: true });
-            if (fs.existsSync(jpgDir)) fs.rmSync(jpgDir, { recursive: true, force: true });
+            fs.rmSync(mergedDir, { recursive: true, force: true });
+            fs.rmSync(jpgDir, { recursive: true, force: true });
           } catch {}
 
           // Write Firestore chapter record
