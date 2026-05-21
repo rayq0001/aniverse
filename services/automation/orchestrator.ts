@@ -626,11 +626,15 @@ export class AutomationOrchestrator {
               return nA - nB;
             });
 
+          let convertedToJpg = false;
           try {
             const jpgFiles = await convertToJpeg(processingDir, jpgDir, 85);
             if (jpgFiles.length > 0) {
               const safeJpgDir = getSafePath(jpgDir);
-              if (safeJpgDir) processingDir = safeJpgDir;
+              if (safeJpgDir) {
+                processingDir = safeJpgDir;
+                convertedToJpg = true;
+              }
               finalFiles = jpgFiles
                 .map(filePath => path.basename(filePath))
                 .sort((a, b) => {
@@ -646,9 +650,12 @@ export class AutomationOrchestrator {
           const imageUrls: string[] = [];
           const processingRoot = fs.realpathSync(processingDir);
           const destRoot = fs.realpathSync(destDir);
-          const isConvertedToJpg = processingDir === jpgDir;
           finalFiles.forEach((img, idx) => {
-            const ext = isConvertedToJpg ? '.jpg' : (path.extname(img) || '.jpg');
+            const extName = path.extname(img);
+            if (!convertedToJpg && !extName) {
+              this.log(taskId, `⚠️ Ch.${chNum}: image "${img}" has no extension, forcing .jpg`, tasks);
+            }
+            const ext = convertedToJpg ? '.jpg' : (extName || '.jpg');
             const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
             const sourcePath = path.resolve(processingDir, img);
             const destPath = path.resolve(destDir, newName);
@@ -674,7 +681,9 @@ export class AutomationOrchestrator {
               const safeJpgDir = getSafePath(jpgDir);
               if (safeJpgDir) fs.rmSync(safeJpgDir, { recursive: true, force: true });
             }
-          } catch {}
+          } catch (cleanupErr: any) {
+            this.log(taskId, `⚠️ Ch.${chNum}: cleanup warning (${cleanupErr?.message || 'unknown error'})`, tasks);
+          }
 
           // Write Firestore chapter record
           try {
