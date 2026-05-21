@@ -21,7 +21,7 @@ const buildHighFidelityJpegOptions = (quality: number) => ({
  */
 export async function convertToJpeg(inputDir: string, outputDir: string, quality = 85): Promise<string[]> {
   fs.mkdirSync(outputDir, { recursive: true });
-  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'];
   const files = fs.readdirSync(inputDir)
     .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
     .sort();
@@ -58,7 +58,7 @@ export async function convertToJpeg(inputDir: string, outputDir: string, quality
  */
 export async function resizeImages(inputDir: string, outputDir: string, maxWidth = 800): Promise<void> {
   fs.mkdirSync(outputDir, { recursive: true });
-  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'];
   const files = fs.readdirSync(inputDir)
     .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
     .sort();

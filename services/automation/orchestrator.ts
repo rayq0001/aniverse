@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GoogleSyncService } from './googleSync';
-import { convertToJpeg } from './tools/sharp-compositor';
+import { convertToJpeg, stitchVertical } from './tools/sharp-compositor';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Fetch with retry + exponential backoff for transient network errors
@@ -594,13 +594,58 @@ export class AutomationOrchestrator {
               return nA - nB;
             });
 
+          let processingDir = chDir;
+          const mergedDir = path.join(chDir, '_merged');
+          const jpgDir = path.join(chDir, '_jpg');
+
+          if (images.length > 1) {
+            try {
+              const stitchedFiles = await stitchVertical(chDir, mergedDir, 5, 800, 88);
+              if (stitchedFiles.length > 0) {
+                processingDir = mergedDir;
+                this.log(taskId, `🔀 Ch.${chNum}: merged ${images.length} image(s) → ${stitchedFiles.length} strip(s)`, tasks);
+              }
+            } catch (mergeErr: any) {
+              this.log(taskId, `⚠️ Ch.${chNum}: merge skipped (${mergeErr?.message || 'unknown error'})`, tasks);
+            }
+          }
+
+          let finalFiles = fs.readdirSync(processingDir)
+            .filter(f => imagePattern.test(f))
+            .sort((a, b) => {
+              const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+              const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+              return nA - nB;
+            });
+
+          try {
+            const jpgFiles = await convertToJpeg(processingDir, jpgDir, 85);
+            if (jpgFiles.length > 0) {
+              processingDir = jpgDir;
+              finalFiles = jpgFiles
+                .map(filePath => path.basename(filePath))
+                .sort((a, b) => {
+                  const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
+                  const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
+                  return nA - nB;
+                });
+            }
+          } catch (jpgErr: any) {
+            this.log(taskId, `⚠️ Ch.${chNum}: JPG conversion skipped (${jpgErr?.message || 'unknown error'})`, tasks);
+          }
+
           const imageUrls: string[] = [];
-          images.forEach((img, idx) => {
-            const ext = path.extname(img);
+          finalFiles.forEach((img, idx) => {
+            const ext = path.extname(img) || '.jpg';
             const newName = `${String(idx + 1).padStart(3, '0')}${ext}`;
-            fs.copyFileSync(path.join(chDir, img), path.join(destDir, newName));
+            fs.copyFileSync(path.join(processingDir, img), path.join(destDir, newName));
             imageUrls.push(`/uploads/manhwas/${manhwaId}/chapters/${chNum}/${newName}`);
           });
+
+          try {
+            if (fs.existsSync(mergedDir)) fs.rmSync(mergedDir, { recursive: true, force: true });
+            if (fs.existsSync(jpgDir)) fs.rmSync(jpgDir, { recursive: true, force: true });
+          } catch {}
 
           // Write Firestore chapter record
           try {
