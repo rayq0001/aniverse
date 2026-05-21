@@ -6,7 +6,7 @@ import {
   Trash2, Shield, Search, Bell, Globe, 
   CheckCircle, Pin, Calendar, 
   ChevronRight, Save, 
-  Download, Cpu, Terminal, Zap, Eraser, 
+  Download, Cpu, Terminal, Zap,
   FileText, Upload, Ban, XCircle, 
   Settings, Menu, X, LayoutDashboard, TrendingUp,
   ShieldAlert, Filter, Lock, BookOpen, Plus, Image, Edit3, Clock, Check, ChevronDown
@@ -65,8 +65,6 @@ const AdminDashboard: React.FC = () => {
   const [automationSeriesId, setAutomationSeriesId] = useState('');
   const [automationStartChapter, setAutomationStartChapter] = useState('');
   const [automationEndChapter, setAutomationEndChapter] = useState('');
-  const [manhwaName, setManhwaName] = useState('');
-  const [chapterNumber, setChapterNumber] = useState('');
   const [selectedSource, setSelectedSource] = useState<'Naver' | 'Kakao' | 'AIO'>('Naver');
   const [automationLogs, setAutomationLogs] = useState<string[]>([]);
   const [isAutomationRunning, setIsAutomationRunning] = useState(false);
@@ -74,26 +72,29 @@ const AdminDashboard: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // New automation workspace state
+  const [activeTool, setActiveTool] = useState<'scraper' | 'extractor'>('scraper');
+  const [scrapedChapters, setScrapedChapters] = useState<{
+    label: string; count: number; taskId: string;
+    previewImages: string[]; imagePaths: string[];
+  }[]>([]);
+  const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
+  const [extractTarget, setExtractTarget] = useState<{ taskId: string; chapterLabel: string; count: number } | null>(null);
+  const [extractMode, setExtractMode] = useState<'raw' | 'translated'>('raw');
+  const [ocrEngine, setOcrEngine] = useState<'gemini' | 'easyocr'>('gemini');
+  const [ocrLang, setOcrLang] = useState('ko');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedResults, setExtractedResults] = useState<{ page: number; raw: string; translated?: string }[] | null>(null);
+  const [extractedChapterLabel, setExtractedChapterLabel] = useState('');
+  const [downloadingZip, setDownloadingZip] = useState<string | null>(null);
+
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [automationLogs]);
 
-  // Staff Publisher State
-  const [staffFile, setStaffFile] = useState<File | null>(null);
-  const [staffDriveLink, setStaffDriveLink] = useState('');
-  const [automationReadiness, setAutomationReadiness] = useState<{
-    loading: boolean;
-    ready: boolean;
-    detectReason: string;
-    translateReason: string;
-  }>({
-    loading: false,
-    ready: true,
-    detectReason: '',
-    translateReason: '',
-  });
+  // Staff Publisher State (kept for staff section in manhwas tab)
   // Manhwa Management State
   const [anilistSearch, setAnilistSearch] = useState('');
   const [anilistLoading, setAnilistLoading] = useState(false);
@@ -827,101 +828,105 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const startStaffPublishing = async () => {
-    if (!manhwaName || !chapterNumber) {
-      toast.error(language === 'ar' ? 'يرجى كتابة اسم المانهوا ورقم الفصل بالأعلى' : 'Please provide Manhwa Name and Chapter above.');
-      return;
-    }
-    if (!staffFile && !staffDriveLink) {
-      toast.error(language === 'ar' ? 'يرجى إرفاق ملف ZIP أو رابط درايف' : 'Please attach a ZIP file or Drive Link.');
-      return;
-    }
-
-    setIsAutomationRunning(true);
-    setAutomationLogs([]);
-    setProgress(0);
-
-    const formData = new FormData();
-    formData.append('manhwaId', manhwaName);
-    formData.append('chapterNumber', chapterNumber);
-    if (staffDriveLink) formData.append('driveLink', staffDriveLink);
-    if (staffFile) formData.append('zipFile', staffFile);
-
-    try {
-      const response = await fetch('/api/automation/staff-publish', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await response.json();
-      if (data.taskId) {
-        setCurrentTaskId(data.taskId);
-      } else {
-        toast.error("Error initiating staff publish.");
-        setIsAutomationRunning(false);
-      }
-    } catch (err) {
-      setIsAutomationRunning(false);
-      toast.error("Server error during staff publish.");
-    }
-  };
-
-  const startAutomation = async (type: 'scrape' | 'ai') => {
+  const startAutomation = async () => {
     const isRangeScraper = selectedSource === 'Naver' || selectedSource === 'Kakao';
+    const isMissingRangeInput = !automationSeriesId || !automationStartChapter || !automationEndChapter;
+    const isMissingUrlInput = !automationUrl;
 
-    if (type === 'ai' && !automationReadiness.ready) {
+    if ((isRangeScraper && isMissingRangeInput) || (!isRangeScraper && isMissingUrlInput)) {
       toast.error(
         language === 'ar'
-          ? 'أدوات التبييض/الترجمة غير جاهزة. راجع حالة الأدوات في بطاقة AI.'
-          : 'AI tools are not ready. Check readiness details in the AI card.'
+          ? isRangeScraper ? 'يرجى إدخال المعرف ورقم الفصل الأول والأخير.' : 'يرجى إدخال رابط المانهوا.'
+          : isRangeScraper ? 'Please provide the series ID, start and end chapters.' : 'Please provide the manhwa URL.'
       );
       return;
     }
 
-    if (type === 'scrape') {
-      const isMissingRangeInput = !automationSeriesId || !automationStartChapter || !automationEndChapter;
-      const isMissingUrlInput = !automationUrl;
-
-      if ((isRangeScraper && isMissingRangeInput) || (!isRangeScraper && isMissingUrlInput)) {
-        toast.error(
-          language === 'ar'
-            ? isRangeScraper
-              ? 'يرجى إدخال المعرف ورقم الفصل الأول والأخير.'
-              : 'يرجى إدخال رابط المانهوا.'
-            : isRangeScraper
-              ? 'Please provide the series ID, first chapter, and last chapter.'
-              : 'Please provide the manhwa URL.'
-        );
-        return;
-      }
-    }
-
     setIsAutomationRunning(true);
-    setAutomationLogs(prev => [...prev, `[SYSTEM]: Initiating ${type} sequence...`]);
-    
+    setAutomationLogs([`[SYSTEM]: Initiating scrape sequence...`]);
+    setProgress(0);
+    setScrapedChapters([]);
+
     try {
       const response = await fetch('/api/automation/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type,
+          type: 'scrape',
           url: isRangeScraper ? '' : automationUrl,
           contentId: isRangeScraper ? automationSeriesId : '',
           startChapter: isRangeScraper ? automationStartChapter : '',
           endChapter: isRangeScraper ? automationEndChapter : '',
           source: selectedSource,
-          name: manhwaName,
-          chapter: chapterNumber
         })
       });
       const data = await response.json();
-      if (data.taskId) {
-        setCurrentTaskId(data.taskId);
-      }
+      if (data.taskId) setCurrentTaskId(data.taskId);
     } catch (err) {
-      console.error("Failed to start automation:", err);
       setIsAutomationRunning(false);
       setAutomationLogs(prev => [...prev, `[ERROR]: Failed to connect to server.`]);
     }
+  };
+
+  const handleExtractText = async () => {
+    if (!extractTarget) return;
+    setIsExtracting(true);
+    setExtractedResults(null);
+    setExtractedChapterLabel(extractTarget.chapterLabel);
+    try {
+      const res = await fetch('/api/automation/extract-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: extractTarget.taskId,
+          chapterLabel: extractTarget.chapterLabel,
+          mode: extractMode,
+          ocrEngine,
+          ocrLang
+        }),
+      });
+      const data = await res.json();
+      if (data.results) setExtractedResults(data.results);
+      else toast.error(data.error || 'Extraction failed');
+    } catch {
+      toast.error(language === 'ar' ? 'فشل الاستخراج' : 'Extraction failed');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleDownloadZip = async (taskId: string, chapterLabel: string) => {
+    setDownloadingZip(chapterLabel);
+    try {
+      const res = await fetch(`/api/automation/download-chapter-zip?taskId=${taskId}&chapter=${encodeURIComponent(chapterLabel)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `chapter-${chapterLabel}.zip`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error('ZIP download failed: ' + err.message);
+    } finally {
+      setDownloadingZip(null);
+    }
+  };
+
+  const handleDownloadText = (mode: 'raw' | 'translated') => {
+    if (!extractedResults) return;
+    let content = '';
+    if (mode === 'raw') {
+      content = extractedResults.map(r => `=== Page ${r.page} ===\n${r.raw}`).join('\n\n');
+    } else {
+      content = extractedResults.map(r =>
+        `=== Page ${r.page} ===\n[Original]\n${r.raw}\n\n[Arabic]\n${r.translated || ''}`
+      ).join('\n\n');
+    }
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `chapter-${extractedChapterLabel}-${mode}.txt`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
@@ -932,56 +937,27 @@ const AdminDashboard: React.FC = () => {
           const response = await fetch('/api/automation/tasks');
           const data = await response.json();
           const currentTask = data.tasks.find((t: any) => t.id === currentTaskId);
-          
+
           if (currentTask) {
             setAutomationLogs(currentTask.logs);
             setProgress(currentTask.progress || 0);
             if (currentTask.status !== 'running' && currentTask.status !== 'pending') {
               setIsAutomationRunning(false);
-              if (currentTask.status === 'completed' && currentTask.images?.length) {
-                setScrapedImages(currentTask.images);
-                setScrapedChapterLabel(currentTask.chapterLabel || '');
+              if (currentTask.status === 'completed' && currentTask.chapters?.length) {
+                setScrapedChapters(currentTask.chapters.map((ch: any) => ({
+                  ...ch,
+                  taskId: currentTaskId!,
+                })));
               }
             }
           }
         } catch (err) {
-          console.error("Error polling logs:", err);
+          console.error("Error polling:", err);
         }
       }, 2000);
     }
     return () => clearInterval(interval);
   }, [isAutomationRunning, currentTaskId]);
-
-  useEffect(() => {
-    if (activeTab !== 'automation') return;
-
-    const fetchReadiness = async () => {
-      try {
-        setAutomationReadiness(prev => ({ ...prev, loading: true }));
-        const response = await fetch('/api/automation/readiness');
-        const data = await response.json();
-        setAutomationReadiness({
-          loading: false,
-          ready: !!data.ready,
-          detectReason: data.detect?.reason || '',
-          translateReason: data.translate?.reason || '',
-        });
-      } catch (err) {
-        setAutomationReadiness({
-          loading: false,
-          ready: false,
-          detectReason: 'Readiness API error',
-          translateReason: 'Readiness API error',
-        });
-      }
-    };
-
-    fetchReadiness();
-  }, [activeTab]);
-
-  const [scrapedImages, setScrapedImages] = useState<string[]>([]);
-  const [scrapedChapterLabel, setScrapedChapterLabel] = useState('');
-  const [activeAutomationSection, setActiveAutomationSection] = useState<'scraper' | 'ai' | 'staff'>('scraper');
 
   const isRangeScraper = selectedSource === 'Naver' || selectedSource === 'Kakao';
   const isScrapeActionDisabled = isAutomationRunning || (isRangeScraper
@@ -2257,43 +2233,39 @@ const AdminDashboard: React.FC = () => {
           {activeTab === 'automation' && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5 pb-24">
 
-              {/* ── Section tabs ── */}
-              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {[
-                  { id: 'scraper', icon: Download, label: language === 'ar' ? 'السحب' : 'Scraper', color: 'blue' },
-                  { id: 'ai',      icon: Cpu,      label: language === 'ar' ? 'الذكاء الاصطناعي' : 'AI Tools', color: 'purple' },
-                  { id: 'staff',   icon: Upload,   label: language === 'ar' ? 'الستاف' : 'Staff',   color: 'emerald' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveAutomationSection(tab.id as any)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-xs whitespace-nowrap transition-all border ${
-                      activeAutomationSection === tab.id
-                        ? tab.color === 'blue'    ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-600/10'
-                        : tab.color === 'purple'  ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-600/10'
-                        :                          'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-600/10'
-                        : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
-                    }`}
-                  >
-                    <tab.icon size={14} />
-                    {tab.label}
-                  </button>
-                ))}
+              {/* ── Header ── */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-black text-base">{language === 'ar' ? 'مركز الأتمتة' : 'Automation Hub'}</h2>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">{language === 'ar' ? 'سحب الفصول · استخراج النصوص · تنزيل المحتوى' : 'Scrape chapters · Extract text · Download content'}</p>
+                </div>
+                <div className="flex items-center gap-1.5 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+                  {([
+                    { id: 'scraper', icon: Download, label: language === 'ar' ? 'السحب' : 'Scraper' },
+                    { id: 'extractor', icon: FileText, label: language === 'ar' ? 'استخراج النص' : 'Extract Text' },
+                  ] as const).map(tool => (
+                    <button key={tool.id} onClick={() => setActiveTool(tool.id)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-black transition-all ${activeTool === tool.id ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-neutral-500 hover:text-white'}`}>
+                      <tool.icon size={13} />
+                      <span className="hidden sm:inline">{tool.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+              {/* ═══ SCRAPER TOOL ═══ */}
+              <AnimatePresence mode="wait">
+              {activeTool === 'scraper' && (
+                <motion.div key="scraper" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-5 gap-5">
 
-                {/* ── LEFT: forms ── */}
-                <div className="lg:col-span-2 space-y-5">
-
-                  {/* SCRAPER */}
-                  {activeAutomationSection === 'scraper' && (
-                    <motion.div key="scraper" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
+                  {/* LEFT: Config */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center shrink-0"><Download size={20} /></div>
+                        <div className="w-9 h-9 bg-blue-500/10 text-blue-400 rounded-xl flex items-center justify-center shrink-0"><Download size={17} /></div>
                         <div>
-                          <h3 className="font-black text-sm">{language === 'ar' ? 'أدوات السحب' : 'Scraper'}</h3>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'Naver · Kakao · AIO' : 'Naver · Kakao · AIO'}</p>
+                          <h3 className="font-black text-sm">{language === 'ar' ? 'سحب الفصول' : 'Chapter Scraper'}</h3>
+                          <p className="text-[10px] text-neutral-500">Naver · Kakao · Global</p>
                         </div>
                       </div>
 
@@ -2301,9 +2273,9 @@ const AdminDashboard: React.FC = () => {
                       <div className="grid grid-cols-3 gap-2">
                         {(['Naver', 'Kakao', 'AIO'] as const).map(src => (
                           <button key={src} onClick={() => setSelectedSource(src)}
-                            className={`py-2.5 rounded-xl font-black text-xs transition-all border ${
-                              selectedSource === src ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'
-                            }`}>{src}</button>
+                            className={`py-2.5 rounded-xl font-black text-xs transition-all border ${selectedSource === src ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'}`}>
+                            {src === 'AIO' ? '🌐 Global' : src}
+                          </button>
                         ))}
                       </div>
 
@@ -2311,7 +2283,7 @@ const AdminDashboard: React.FC = () => {
                       {isRangeScraper ? (
                         <div className="space-y-3">
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'المعرّف ID' : 'Series ID'}</label>
+                            <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'معرّف المسلسل' : 'Series ID'}</label>
                             <input type="text" value={automationSeriesId} onChange={e => setAutomationSeriesId(e.target.value)}
                               className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all"
                               placeholder={language === 'ar' ? 'مثلاً: 848496' : 'e.g. 848496'} />
@@ -2331,219 +2303,340 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       ) : (
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'رابط المانهوا' : 'Manhwa URL'}</label>
+                          <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'رابط الفصل أو المانهوا' : 'Chapter / Manhwa URL'}</label>
                           <input type="text" value={automationUrl} onChange={e => setAutomationUrl(e.target.value)}
                             className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-blue-500/50 outline-none transition-all" placeholder="https://..." />
                         </div>
                       )}
 
-                      <button onClick={() => startAutomation('scrape')} disabled={isScrapeActionDisabled}
+                      <button onClick={startAutomation} disabled={isScrapeActionDisabled}
                         className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-600/10">
-                        {isAutomationRunning
-                          ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                          : <Zap size={16} />}
-                        <span>{language === 'ar' ? 'بدء السحب' : 'Start Scraping'}</span>
+                        {isAutomationRunning ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Zap size={16} />}
+                        <span>{isAutomationRunning ? (language === 'ar' ? 'جاري السحب...' : 'Scraping...') : (language === 'ar' ? 'بدء السحب' : 'Start Scraping')}</span>
                       </button>
-                    </motion.div>
-                  )}
+                    </div>
 
-                  {/* AI */}
-                  {activeAutomationSection === 'ai' && (
-                    <motion.div key="ai" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center shrink-0"><Cpu size={20} /></div>
-                        <div>
-                          <h3 className="font-black text-sm">{language === 'ar' ? 'معالجة الذكاء الاصطناعي' : 'AI Processing'}</h3>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'تبييض · ترجمة · OCR' : 'In-paint · Translate · OCR'}</p>
+                    {/* Terminal log */}
+                    <div className="bg-[#0a0a0a] rounded-2xl border border-white/[0.04] overflow-hidden">
+                      <div className="px-4 py-3 bg-white/[0.03] border-b border-white/[0.03] flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Terminal size={12} className="text-neutral-600" />
+                          <span className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">
+                            {isAutomationRunning ? (language === 'ar' ? 'جاري التنفيذ...' : 'Running...') : (language === 'ar' ? 'سجل العمليات' : 'Logs')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {isAutomationRunning && <span className="text-[10px] font-black text-blue-400">{progress}%</span>}
+                          {automationLogs.length > 0 && (
+                            <button onClick={() => setAutomationLogs([])} className="text-[10px] font-black text-neutral-600 hover:text-red-400 transition-colors uppercase">{language === 'ar' ? 'مسح' : 'Clear'}</button>
+                          )}
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.04] space-y-2">
-                          <Eraser size={18} className="text-yellow-400" />
-                          <p className="font-black text-sm">{language === 'ar' ? 'التبييض' : 'In-painting'}</p>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'تنظيف الفقاعات' : 'Clean bubbles'}</p>
-                        </div>
-                        <div className="p-4 bg-white/[0.02] rounded-xl border border-white/[0.04] space-y-2">
-                          <FileText size={18} className="text-emerald-400" />
-                          <p className="font-black text-sm">{language === 'ar' ? 'الترجمة' : 'Translation'}</p>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'TsengScans AI' : 'TsengScans AI'}</p>
-                        </div>
-                      </div>
-                      {!automationReadiness.ready && (
-                        <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 space-y-1">
-                          <p className="text-[11px] font-black text-red-300">
-                            {language === 'ar' ? 'أدوات AI غير جاهزة' : 'AI tools are not ready'}
-                          </p>
-                          <p className="text-[10px] text-red-200/80">Detect: {automationReadiness.detectReason}</p>
-                          <p className="text-[10px] text-red-200/80">Translate: {automationReadiness.translateReason}</p>
+                      {isAutomationRunning && (
+                        <div className="h-0.5 w-full bg-white/5">
+                          <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} className="h-full bg-blue-500" />
                         </div>
                       )}
-
-                      <button onClick={() => startAutomation('ai')} disabled={isAutomationRunning || automationReadiness.loading || !automationReadiness.ready}
-                        className="w-full py-3.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-purple-600/10">
-                        {isAutomationRunning || automationReadiness.loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Terminal size={16} />}
-                        <span>{language === 'ar' ? 'تشغيل خط الإنتاج' : 'Run Pipeline'}</span>
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {/* STAFF */}
-                  {activeAutomationSection === 'staff' && (
-                    <motion.div key="staff" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center shrink-0"><Upload size={20} /></div>
-                        <div>
-                          <h3 className="font-black text-sm">{language === 'ar' ? 'تسليم أعمال الستاف' : 'Staff Delivery'}</h3>
-                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'ZIP أو رابط درايف' : 'ZIP or Drive link'}</p>
-                        </div>
+                      <div ref={logContainerRef} className="p-3 h-44 font-mono text-[10px] text-neutral-400 overflow-y-auto space-y-0.5 bg-black custom-scrollbar">
+                        {automationLogs.length === 0
+                          ? <p className="text-neutral-700 italic">{language === 'ar' ? 'في انتظار الأوامر...' : 'Waiting for input...'}</p>
+                          : automationLogs.map((log, i) => (
+                            <p key={i} className={`px-2 py-0.5 border-l-2 rounded-sm ${
+                              log.includes('❌') || log.includes('[ERROR]') || log.includes('🛑') ? 'text-red-400 border-red-600 bg-red-500/5' :
+                              log.includes('✅') || log.includes('🎉') || log.includes('🏁') ? 'text-emerald-400 border-emerald-600 bg-emerald-500/5' :
+                              log.includes('🚀') || log.includes('[SYSTEM]') ? 'text-blue-400 border-blue-600 bg-blue-500/5' :
+                              log.includes('⚠️') ? 'text-yellow-400 border-yellow-600 bg-yellow-500/5' :
+                              'text-neutral-500 border-neutral-800'
+                            }`}>{log}</p>
+                          ))}
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'معرف المانهوا' : 'Manhwa ID'}</label>
-                          <input type="text" value={manhwaName} onChange={e => setManhwaName(e.target.value)}
-                            className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-emerald-500 outline-none transition-all"
-                            placeholder="solo-leveling" />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'رقم الفصل' : 'Chapter #'}</label>
-                          <input type="text" value={chapterNumber} onChange={e => setChapterNumber(e.target.value)}
-                            className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-emerald-500 outline-none transition-all"
-                            placeholder="1" />
-                        </div>
-                      </div>
-                      <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-white/[0.06] rounded-2xl hover:border-white/30 hover:bg-white/[0.04] transition-all cursor-pointer group">
-                        <Upload className="w-7 h-7 mb-2 text-neutral-500 group-hover:text-emerald-400 transition-colors" />
-                        <p className="text-xs font-bold text-neutral-500 group-hover:text-neutral-300 transition-colors">
-                          {staffFile ? staffFile.name : (language === 'ar' ? 'اضغط لاختيار ملف ZIP' : 'Click to select ZIP')}
-                        </p>
-                        <input type="file" accept=".zip" className="hidden" onChange={e => setStaffFile(e.target.files?.[0] || null)} />
-                      </label>
-                      <div className="text-center text-neutral-600 font-black text-[10px] uppercase">— {language === 'ar' ? 'أو' : 'or'} —</div>
-                      <input type="text" value={staffDriveLink} onChange={e => setStaffDriveLink(e.target.value)}
-                        className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-sm focus:border-emerald-500 outline-none transition-all"
-                        placeholder="https://drive.google.com/drive/folders/..." />
-                      <button onClick={startStaffPublishing} disabled={isAutomationRunning || (!staffFile && !staffDriveLink)}
-                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/10">
-                        {isAutomationRunning ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <CheckCircle size={16} />}
-                        <span>{language === 'ar' ? 'تسليم ونشر' : 'Publish & Sync'}</span>
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {/* Progress + Logs */}
-                  <div className="bg-[#0a0a0a] rounded-2xl border border-white/[0.04] overflow-hidden">
-                    <div className="px-4 py-3 bg-white/[0.03] border-b border-white/[0.03] flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Terminal size={13} className="text-neutral-500 shrink-0" />
-                        <span className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest truncate">
-                          {isAutomationRunning ? (language === 'ar' ? 'جاري التنفيذ...' : 'Running...') : (language === 'ar' ? 'سجل العمليات' : 'Logs')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        {isAutomationRunning && (
-                          <span className="text-[10px] font-black text-blue-400">{progress}%</span>
-                        )}
-                        {automationLogs.length > 0 && (
-                          <button onClick={() => setAutomationLogs([])} className="text-[10px] font-black text-red-500 hover:text-red-400 transition-colors uppercase">
-                            {language === 'ar' ? 'مسح' : 'Clear'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {isAutomationRunning && (
-                      <div className="h-1 w-full bg-white/5">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }}
-                          className="h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
-                      </div>
-                    )}
-                    <div ref={logContainerRef} className="p-4 h-56 font-mono text-[11px] text-neutral-400 overflow-y-auto space-y-1 custom-scrollbar bg-black">
-                      {automationLogs.length === 0
-                        ? <p className="text-neutral-700 italic">{language === 'ar' ? 'في انتظار الأوامر...' : 'Waiting for input...'}</p>
-                        : automationLogs.map((log, i) => (
-                          <p key={i} className={`p-1 border-l-2 pl-3 rounded-sm ${
-                            log.includes('❌') || log.includes('[ERROR]') || log.includes('🛑') ? 'text-red-400 border-red-500 bg-red-500/5' :
-                            log.includes('✅') || log.includes('🎉') || log.includes('🏁') ? 'text-emerald-400 border-emerald-500 bg-emerald-500/5' :
-                            log.includes('🚀') || log.includes('⚙️') || log.includes('[SYSTEM]') ? 'text-blue-400 border-blue-500 bg-blue-500/5' :
-                            log.includes('⚠️') ? 'text-yellow-400 border-yellow-500 bg-yellow-500/5' :
-                            'text-neutral-500 border-neutral-800'
-                          }`}>{log}</p>
-                        ))}
                     </div>
                   </div>
-                </div>
 
-                {/* ── RIGHT: Chapter preview ── */}
-                <div className="lg:col-span-3">
-                  <div className="bg-[#0a0a0a] rounded-2xl border border-white/[0.04] overflow-hidden h-full min-h-[400px] flex flex-col">
-                    <div className="px-5 py-4 bg-white/[0.03] border-b border-white/[0.03] flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationPlayState: isAutomationRunning ? 'running' : 'paused' }} />
-                        <span className="text-xs font-black uppercase tracking-widest text-neutral-400">
-                          {scrapedImages.length > 0
-                            ? (language === 'ar' ? `معاينة الفصل ${scrapedChapterLabel}` : `Chapter ${scrapedChapterLabel} Preview`)
-                            : (language === 'ar' ? 'معاينة الفصل المسحوب' : 'Scraped Chapter Preview')}
-                        </span>
+                  {/* RIGHT: Chapter folders */}
+                  <div className="lg:col-span-3">
+                    <div className="bg-[#0a0a0a] rounded-2xl border border-white/[0.04] overflow-hidden h-full flex flex-col">
+                      <div className="px-5 py-4 bg-white/[0.03] border-b border-white/[0.03] flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${isAutomationRunning ? 'bg-blue-500 animate-pulse' : scrapedChapters.length > 0 ? 'bg-emerald-500' : 'bg-neutral-700'}`} />
+                          <span className="text-xs font-black uppercase tracking-widest text-neutral-400">
+                            {scrapedChapters.length > 0
+                              ? (language === 'ar' ? `${scrapedChapters.length} فصل مسحوب` : `${scrapedChapters.length} chapter(s) scraped`)
+                              : (language === 'ar' ? 'نتائج السحب' : 'Scrape Results')}
+                          </span>
+                        </div>
+                        {scrapedChapters.length > 0 && (
+                          <button onClick={() => setScrapedChapters([])} className="text-[10px] font-black text-neutral-600 hover:text-red-400 transition-colors uppercase">{language === 'ar' ? 'مسح' : 'Clear'}</button>
+                        )}
                       </div>
-                      {scrapedImages.length > 0 && (
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] text-neutral-500 font-black">{scrapedImages.length} {language === 'ar' ? 'صورة' : 'images'}</span>
-                          <button onClick={() => setScrapedImages([])} className="text-[10px] font-black text-neutral-500 hover:text-white transition-colors uppercase">
-                            {language === 'ar' ? 'مسح' : 'Clear'}
-                          </button>
+
+                      {scrapedChapters.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+                          {isAutomationRunning ? (
+                            <>
+                              <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+                              <p className="text-sm font-black text-neutral-400">{language === 'ar' ? 'جاري السحب...' : 'Scraping in progress...'}</p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-14 h-14 bg-white/[0.03] rounded-2xl flex items-center justify-center">
+                                <Download size={24} className="text-neutral-700" />
+                              </div>
+                              <div>
+                                <p className="font-black text-neutral-500 text-sm">{language === 'ar' ? 'لا توجد فصول مسحوبة' : 'No chapters scraped yet'}</p>
+                                <p className="text-[11px] text-neutral-700 mt-1">{language === 'ar' ? 'ابدأ السحب لرؤية النتائج هنا' : 'Start scraping to see results here'}</p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+                          {scrapedChapters.map(ch => (
+                            <motion.div key={ch.label} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                              className="bg-white/[0.03] rounded-xl border border-white/[0.05] overflow-hidden">
+                              {/* Folder header */}
+                              <button onClick={() => setExpandedChapters(prev => {
+                                const next = new Set(prev);
+                                next.has(ch.label) ? next.delete(ch.label) : next.add(ch.label);
+                                return next;
+                              })} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all">
+                                <div className="w-8 h-8 bg-blue-500/10 text-blue-400 rounded-lg flex items-center justify-center shrink-0 text-base">📁</div>
+                                <div className="flex-1 text-left min-w-0">
+                                  <p className="font-black text-sm">{language === 'ar' ? `الفصل ${ch.label}` : `Chapter ${ch.label}`}</p>
+                                  <p className="text-[10px] text-neutral-500">{ch.count} {language === 'ar' ? 'صورة' : 'images'}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button onClick={e => { e.stopPropagation(); handleDownloadZip(ch.taskId, ch.label); }}
+                                    disabled={downloadingZip === ch.label}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-black rounded-lg transition-all border border-blue-500/20 disabled:opacity-50">
+                                    {downloadingZip === ch.label ? <div className="w-3 h-3 border border-blue-400/30 border-t-blue-400 rounded-full animate-spin" /> : <Download size={11} />}
+                                    ZIP
+                                  </button>
+                                  <button onClick={e => { e.stopPropagation(); setExtractTarget({ taskId: ch.taskId, chapterLabel: ch.label, count: ch.count }); setActiveTool('extractor'); setExtractedResults(null); }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 text-[10px] font-black rounded-lg transition-all border border-emerald-500/20">
+                                    <FileText size={11} />
+                                    {language === 'ar' ? 'استخراج' : 'Extract'}
+                                  </button>
+                                  <ChevronDown size={14} className={`text-neutral-600 transition-transform ${expandedChapters.has(ch.label) ? 'rotate-180' : ''}`} />
+                                </div>
+                              </button>
+
+                              {/* Expanded: image preview grid */}
+                              <AnimatePresence>
+                                {expandedChapters.has(ch.label) && (
+                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                                    <div className="px-4 pb-4 grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                                      {ch.previewImages.map((img, i) => (
+                                        <div key={i} className="aspect-[3/4] rounded-lg overflow-hidden bg-white/5">
+                                          <img src={img} alt={`p${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                                        </div>
+                                      ))}
+                                      {ch.count > ch.previewImages.length && (
+                                        <div className="aspect-[3/4] rounded-lg bg-white/[0.04] flex items-center justify-center border border-white/[0.06]">
+                                          <span className="text-[9px] font-black text-neutral-500">+{ch.count - ch.previewImages.length}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          ))}
                         </div>
                       )}
                     </div>
+                  </div>
+                </motion.div>
+              )}
 
-                    {scrapedImages.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
-                        {isAutomationRunning ? (
-                          <>
-                            <div className="w-14 h-14 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-                            <div>
-                              <p className="font-black text-white">{language === 'ar' ? 'جاري السحب...' : 'Scraping...'}</p>
-                              <p className="text-xs text-neutral-500 mt-1">{language === 'ar' ? 'ستظهر الصور هنا فور الانتهاء' : 'Images will appear here when done'}</p>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-16 h-16 bg-white/5 rounded-3xl flex items-center justify-center">
-                              <Download size={28} className="text-neutral-600" />
-                            </div>
-                            <div>
-                              <p className="font-black text-neutral-400">{language === 'ar' ? 'لا توجد فصول مسحوبة بعد' : 'No chapters scraped yet'}</p>
-                              <p className="text-xs text-neutral-600 mt-1">{language === 'ar' ? 'ابدأ السحب لرؤية الصور هنا' : 'Start scraping to preview images'}</p>
-                            </div>
-                          </>
+              {/* ═══ EXTRACTOR TOOL ═══ */}
+              {activeTool === 'extractor' && (
+                <motion.div key="extractor" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+
+                  {/* LEFT: Config */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-[#0a0a0a] p-4 md:p-5 rounded-2xl border border-white/[0.04] space-y-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center shrink-0"><FileText size={17} /></div>
+                        <div>
+                          <h3 className="font-black text-sm">{language === 'ar' ? 'استخراج النصوص' : 'Text Extractor'}</h3>
+                          <p className="text-[10px] text-neutral-500">{language === 'ar' ? 'OCR + ترجمة اختيارية' : 'OCR + optional translation'}</p>
+                        </div>
+                      </div>
+
+                      {/* Target chapter */}
+                      {extractTarget ? (
+                        <div className="flex items-center gap-3 p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                          <span className="text-xl">📁</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-black text-sm text-emerald-300">{language === 'ar' ? `الفصل ${extractTarget.chapterLabel}` : `Chapter ${extractTarget.chapterLabel}`}</p>
+                            <p className="text-[10px] text-emerald-500">{extractTarget.count} {language === 'ar' ? 'صفحة' : 'pages'}</p>
+                          </div>
+                          <button onClick={() => setExtractTarget(null)} className="p-1 hover:bg-white/10 rounded-lg transition-all">
+                            <X size={14} className="text-neutral-500" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-white/[0.02] rounded-xl border border-dashed border-white/[0.08] text-center space-y-2">
+                          <Download size={20} className="text-neutral-600 mx-auto" />
+                          <p className="text-xs text-neutral-600">{language === 'ar' ? 'اذهب إلى السحب واختر فصلاً للاستخراج' : 'Go to Scraper and click Extract on a chapter'}</p>
+                          <button onClick={() => setActiveTool('scraper')} className="text-[11px] font-black text-blue-400 hover:text-blue-300 transition-colors">
+                            {language === 'ar' ? '← العودة إلى السحب' : '← Back to Scraper'}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Mode */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'وضع الاستخراج' : 'Extraction Mode'}</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setExtractMode('raw')}
+                            className={`py-3 rounded-xl font-black text-xs transition-all border flex flex-col items-center gap-1 ${extractMode === 'raw' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'}`}>
+                            <FileText size={15} />
+                            {language === 'ar' ? 'خام فقط' : 'Raw Only'}
+                          </button>
+                          <button onClick={() => setExtractMode('translated')}
+                            className={`py-3 rounded-xl font-black text-xs transition-all border flex flex-col items-center gap-1 ${extractMode === 'translated' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'}`}>
+                            <Globe size={15} />
+                            {language === 'ar' ? 'خام + مترجم' : 'Raw + Translated'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-neutral-600">
+                          {extractMode === 'raw'
+                            ? (language === 'ar' ? 'استخراج النصوص الأصلية فقط من كل صفحة' : 'Extract original text from each page')
+                            : (language === 'ar' ? 'استخراج النصوص ثم ترجمتها للعربية' : 'Extract text and translate to Arabic')}
+                        </p>
+                      </div>
+
+                      {/* OCR Engine */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'محرك OCR' : 'OCR Engine'}</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setOcrEngine('gemini')}
+                            className={`py-3 rounded-xl font-black text-xs transition-all border flex flex-col items-center gap-1 ${ocrEngine === 'gemini' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'}`}>
+                            <Cpu size={15} />
+                            {language === 'ar' ? 'Gemini AI' : 'Gemini AI'}
+                          </button>
+                          <button onClick={() => setOcrEngine('easyocr')}
+                            className={`py-3 rounded-xl font-black text-xs transition-all border flex flex-col items-center gap-1 ${ocrEngine === 'easyocr' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:bg-white/10'}`}>
+                            <Image size={15} />
+                            {language === 'ar' ? 'EasyOCR' : 'EasyOCR'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-neutral-600">
+                          {ocrEngine === 'gemini'
+                            ? (language === 'ar' ? 'سحابي وسريع، يحتاج مفتاح Gemini' : 'Cloud OCR, requires Gemini API key')
+                            : (language === 'ar' ? 'محلي ويعمل بدون Gemini' : 'Local OCR without Gemini')}
+                        </p>
+                        {ocrEngine === 'easyocr' && (
+                          <div className="space-y-1.5 pt-2">
+                            <label className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'لغة النص' : 'Text Language'}</label>
+                            <select value={ocrLang} onChange={e => setOcrLang(e.target.value)}
+                              className="w-full bg-black border border-white/[0.06] rounded-xl p-3 text-xs focus:border-white/15 outline-none transition-all">
+                              <option value="ko" className="bg-black">{language === 'ar' ? 'كوري (مانهوا)' : 'Korean (Manhwa)'}</option>
+                              <option value="ja" className="bg-black">{language === 'ar' ? 'ياباني (مانغا)' : 'Japanese (Manga)'}</option>
+                              <option value="en" className="bg-black">{language === 'ar' ? 'إنجليزي' : 'English'}</option>
+                              <option value="ch_sim" className="bg-black">{language === 'ar' ? 'صيني مبسط' : 'Chinese (Simplified)'}</option>
+                              <option value="ch_tra" className="bg-black">{language === 'ar' ? 'صيني تقليدي' : 'Chinese (Traditional)'}</option>
+                            </select>
+                          </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {scrapedImages.map((img, i) => (
-                            <motion.div
-                              key={i}
-                              initial={{ opacity: 0, scale: 0.9 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              transition={{ delay: i * 0.03 }}
-                              className="relative aspect-[3/4] rounded-xl overflow-hidden bg-white/5 border border-white/5 group"
-                            >
-                              <img
-                                src={img}
-                                alt={`page-${i + 1}`}
-                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                                loading="lazy"
-                              />
-                              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
-                                <span className="text-[10px] font-black text-white/70">{i + 1}</span>
+
+                      <button onClick={handleExtractText} disabled={!extractTarget || isExtracting}
+                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/10">
+                        {isExtracting ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Cpu size={16} />}
+                        <span>{isExtracting ? (language === 'ar' ? 'جاري الاستخراج...' : 'Extracting...') : (language === 'ar' ? 'بدء الاستخراج' : 'Extract Text')}</span>
+                      </button>
+                    </div>
+
+                    {/* Download buttons */}
+                    {extractedResults && (
+                      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="bg-[#0a0a0a] p-4 rounded-2xl border border-white/[0.04] space-y-3">
+                        <p className="text-[10px] font-bold uppercase text-neutral-600 tracking-widest">{language === 'ar' ? 'تنزيل النتائج' : 'Download Results'}</p>
+                        <button onClick={() => handleDownloadText('raw')}
+                          className="w-full py-3 bg-white/[0.05] hover:bg-white/10 text-white font-black rounded-xl flex items-center justify-center gap-2 transition-all border border-white/[0.06] text-sm">
+                          <Download size={15} />
+                          {language === 'ar' ? 'تنزيل النص الخام' : 'Download Raw Text'}
+                        </button>
+                        {extractMode === 'translated' && (
+                          <button onClick={() => handleDownloadText('translated')}
+                            className="w-full py-3 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 font-black rounded-xl flex items-center justify-center gap-2 transition-all border border-emerald-500/20 text-sm">
+                            <Download size={15} />
+                            {language === 'ar' ? 'تنزيل الخام + المترجم' : 'Download Raw + Translated'}
+                          </button>
+                        )}
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* RIGHT: Extracted text results */}
+                  <div className="lg:col-span-3">
+                    <div className="bg-[#0a0a0a] rounded-2xl border border-white/[0.04] overflow-hidden h-full flex flex-col">
+                      <div className="px-5 py-4 bg-white/[0.03] border-b border-white/[0.03] flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${isExtracting ? 'bg-emerald-500 animate-pulse' : extractedResults ? 'bg-emerald-500' : 'bg-neutral-700'}`} />
+                          <span className="text-xs font-black uppercase tracking-widest text-neutral-400">
+                            {extractedResults
+                              ? (language === 'ar' ? `${extractedResults.length} صفحة · الفصل ${extractedChapterLabel}` : `${extractedResults.length} pages · Chapter ${extractedChapterLabel}`)
+                              : (language === 'ar' ? 'نتائج الاستخراج' : 'Extraction Results')}
+                          </span>
+                        </div>
+                        {extractedResults && (
+                          <button onClick={() => setExtractedResults(null)} className="text-[10px] font-black text-neutral-600 hover:text-red-400 transition-colors uppercase">{language === 'ar' ? 'مسح' : 'Clear'}</button>
+                        )}
+                      </div>
+
+                      {isExtracting ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+                          <div className="relative w-16 h-16">
+                            <div className="absolute inset-0 border-4 border-emerald-500/20 rounded-full animate-spin border-t-emerald-500" />
+                            <div className="absolute inset-3 border-4 border-emerald-500/10 rounded-full animate-spin-slow border-t-emerald-500/40" style={{ animationDirection: 'reverse' }} />
+                          </div>
+                          <div>
+                            <p className="font-black text-white">{language === 'ar' ? 'جاري استخراج النصوص...' : 'Extracting text...'}</p>
+                            <p className="text-xs text-neutral-500 mt-1">{language === 'ar' ? 'يتم تحليل كل صفحة بالذكاء الاصطناعي' : 'AI is analyzing each page'}</p>
+                          </div>
+                        </div>
+                      ) : extractedResults ? (
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                          {extractedResults.map(r => (
+                            <motion.div key={r.page} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                              className="bg-white/[0.03] rounded-xl border border-white/[0.04] overflow-hidden">
+                              <div className="px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.04]">
+                                <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{language === 'ar' ? `صفحة ${r.page}` : `Page ${r.page}`}</span>
+                              </div>
+                              <div className="p-4 space-y-3">
+                                <div>
+                                  {extractMode === 'translated' && <p className="text-[9px] font-black text-neutral-600 uppercase tracking-widest mb-1">{language === 'ar' ? 'الأصلي' : 'Original'}</p>}
+                                  <p className="text-xs text-neutral-300 leading-relaxed whitespace-pre-wrap font-mono">{r.raw}</p>
+                                </div>
+                                {r.translated && (
+                                  <div className="pt-3 border-t border-white/[0.06]">
+                                    <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">{language === 'ar' ? 'الترجمة العربية' : 'Arabic Translation'}</p>
+                                    <p className="text-xs text-emerald-300 leading-relaxed whitespace-pre-wrap" dir="rtl">{r.translated}</p>
+                                  </div>
+                                )}
                               </div>
                             </motion.div>
                           ))}
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+                          <div className="w-14 h-14 bg-white/[0.03] rounded-2xl flex items-center justify-center">
+                            <FileText size={24} className="text-neutral-700" />
+                          </div>
+                          <div>
+                            <p className="font-black text-neutral-500 text-sm">{language === 'ar' ? 'لا توجد نتائج بعد' : 'No results yet'}</p>
+                            <p className="text-[11px] text-neutral-700 mt-1">{language === 'ar' ? 'اختر فصلاً واضغط على بدء الاستخراج' : 'Select a chapter and click Extract Text'}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              )}
+              </AnimatePresence>
             </motion.div>
           )}
         </AnimatePresence>

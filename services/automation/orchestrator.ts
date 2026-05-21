@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GoogleSyncService } from './googleSync';
-import { convertToWebP } from './tools/sharp-compositor';
+import { convertToWebP, mergeImagePaths } from './tools/sharp-compositor';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Fetch with retry + exponential backoff for transient network errors
@@ -444,6 +444,103 @@ export class AutomationOrchestrator {
    * Bulk scrape: download chapters and save directly to uploads + Firestore.
    * No AI processing — just raw download + store.
    */
+  /**
+   * Scrape chapters and store per-chapter image paths for later extraction/download.
+   * Does NOT upload to Firestore — results stay in temp for in-session use.
+   */
+  async runScrapeForExtraction(
+    taskId: string,
+    data: { source: string; contentId?: string; startChapter?: string; endChapter?: string; url?: string },
+    tasks: Record<string, any>
+  ) {
+    const isRange = data.source === 'Naver' || data.source === 'Kakao';
+    const start = parseInt(data.startChapter || '1');
+    const end = parseInt(data.endChapter || data.startChapter || '1');
+    const chapterLabel = start === end ? String(start) : `${start}-${end}`;
+
+    try {
+      tasks[taskId].status = 'running';
+      this.log(taskId, `🚀 Starting scrape: ${data.source} Ch.${chapterLabel}`, tasks);
+
+      const rawPath = path.join(this.tempPath, `extract_${taskId}`);
+      if (!fs.existsSync(rawPath)) fs.mkdirSync(rawPath, { recursive: true });
+
+      await this.runTool(taskId, 'scrape', data, tasks, rawPath);
+
+      const findImages = (dir: string): string[] => {
+        const result: string[] = [];
+        if (!fs.existsSync(dir)) return result;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isFile() && /\.(jpg|jpeg|png|webp)$/i.test(entry.name)) {
+            result.push(fullPath);
+          } else if (entry.isDirectory()) {
+            result.push(...findImages(fullPath));
+          }
+        }
+        return result.sort((a, b) => {
+          const nA = parseInt(path.basename(a).replace(/\D/g, '') || '0');
+          const nB = parseInt(path.basename(b).replace(/\D/g, '') || '0');
+          return nA - nB;
+        });
+      };
+
+      const chapters: { label: string; imagePaths: string[] }[] = [];
+
+      if (isRange && start !== end) {
+        const findChapterDirs = (dir: string): Map<number, string> => {
+          const result = new Map<number, string>();
+          if (!fs.existsSync(dir)) return result;
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              const num = parseInt(entry.name);
+              if (!isNaN(num) && num >= start && num <= end) {
+                result.set(num, fullPath);
+              } else {
+                const sub = findChapterDirs(fullPath);
+                sub.forEach((v, k) => result.set(k, v));
+              }
+            }
+          }
+          return result;
+        };
+        for (const [num, dir] of [...findChapterDirs(rawPath).entries()].sort((a, b) => a[0] - b[0])) {
+          const images = findImages(dir);
+          if (images.length > 0) chapters.push({ label: String(num), imagePaths: images });
+        }
+      } else {
+        const images = findImages(rawPath);
+        chapters.push({ label: chapterLabel, imagePaths: images });
+      }
+
+      tasks[taskId].chapters = chapters;
+
+      // Auto-merge: combine every 7 images into one vertical strip
+      try {
+        for (const chapter of chapters) {
+          if (chapter.imagePaths.length === 0) continue;
+          const mergedDir = path.join(path.dirname(chapter.imagePaths[0]), '_merged');
+          const originalCount = chapter.imagePaths.length;
+          const mergedPaths = await mergeImagePaths(chapter.imagePaths, mergedDir, 7, 1000, 88);
+          chapter.imagePaths = mergedPaths;
+          this.log(taskId, `🔀 Merging chapter ${chapter.label}: ${originalCount} images → ${mergedPaths.length} strips`, tasks);
+        }
+      } catch (mergeErr: any) {
+        this.log(taskId, `⚠️ Auto-merge failed (using original images): ${mergeErr.message}`, tasks);
+      }
+
+      tasks[taskId].status = 'completed';
+      tasks[taskId].progress = 100;
+      const totalImages = chapters.reduce((acc, c) => acc + c.imagePaths.length, 0);
+      this.log(taskId, `✅ Scrape complete! ${chapters.length} chapter(s), ${totalImages} total images`, tasks);
+
+    } catch (err: any) {
+      this.log(taskId, `🛑 [FATAL]: ${err.message}`, tasks);
+      tasks[taskId].status = 'error';
+    }
+  }
+
   async runBulkScrape(
     taskId: string,
     data: { source: string; contentId: string; startChapter: number; endChapter: number; manhwaId: string },

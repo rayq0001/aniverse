@@ -7,6 +7,7 @@ import fs from "fs";
 import multer from "multer";
 import AdmZip from "adm-zip";
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
+import { spawn } from "child_process";
 import crypto from "crypto";
 import { AutomationOrchestrator } from "./services/automation/orchestrator";
 import { stitchVertical } from "./services/automation/tools/sharp-compositor";
@@ -615,15 +616,13 @@ async function startServer() {
       type: type || 'full_pipeline',
       status: 'pending',
       logs: [`[SYSTEM]: Starting ${type || 'full_pipeline'} sequence...`],
-      progress: 0
+      progress: 0,
+      chapters: [],
     };
 
-    if (type === 'full_pipeline' || !type) {
-      // Run as background task (don't await)
-      orchestrator.runFullPipeline(taskId, { url, source, name, chapter, contentId, startChapter, endChapter }, activeTasks);
+    if (type === 'scrape') {
+      orchestrator.runScrapeForExtraction(taskId, { source, contentId, startChapter, endChapter, url }, activeTasks);
     } else {
-      // Individual tool run (fallback for existing UI)
-      // For now, we point them to the orchestrator as well or keep the spawn
       orchestrator.runFullPipeline(taskId, { url, source, name, chapter, contentId, startChapter, endChapter }, activeTasks);
     }
 
@@ -638,6 +637,12 @@ async function startServer() {
       logs: task.logs.slice(-50),
       chapterLabel: task.chapterLabel,
       images: (task.imagePaths || []).map((p: string) => `/api/automation/image?path=${encodeURIComponent(p)}`),
+      chapters: (task.chapters || []).map((ch: any) => ({
+        label: ch.label,
+        count: ch.imagePaths.length,
+        previewImages: ch.imagePaths.slice(0, 4).map((p: string) => `/api/automation/image?path=${encodeURIComponent(p)}`),
+        imagePaths: ch.imagePaths,
+      })),
     }));
     res.json({ tasks });
   });
@@ -679,6 +684,179 @@ async function startServer() {
     res.sendFile(resolved);
   });
 
+  // Download chapter images as a ZIP archive
+  app.get("/api/automation/download-chapter-zip", (req, res) => {
+    const taskId = req.query.taskId as string;
+    const chapterLabel = req.query.chapter as string;
+
+    if (!taskId || !chapterLabel) return res.status(400).send('Missing taskId or chapter');
+
+    const task = (activeTasks as any)[taskId];
+    if (!task) return res.status(404).send('Task not found');
+
+    const chapter = (task.chapters || []).find((c: any) => c.label === chapterLabel);
+    if (!chapter || chapter.imagePaths.length === 0) return res.status(404).send('Chapter not found or has no images');
+
+    try {
+      const zip = new AdmZip();
+      for (const imgPath of chapter.imagePaths) {
+        if (fs.existsSync(imgPath)) zip.addLocalFile(imgPath, `chapter-${chapterLabel}/`);
+      }
+      const buf = zip.toBuffer();
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="chapter-${chapterLabel}.zip"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).send('Failed to create ZIP: ' + err.message);
+    }
+  });
+
+  // Extract text (OCR) from scraped chapter images using Gemini AI or EasyOCR
+  app.post("/api/automation/extract-text", express.json(), async (req, res) => {
+    const { taskId, chapterLabel, mode, ocrEngine, ocrLang } = req.body as {
+      taskId: string;
+      chapterLabel: string;
+      mode: 'raw' | 'translated';
+      ocrEngine?: 'gemini' | 'easyocr';
+      ocrLang?: string | string[];
+    };
+
+    if (!taskId || !chapterLabel) return res.status(400).json({ error: 'Missing taskId or chapterLabel' });
+
+    const task = (activeTasks as any)[taskId];
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const chapter = (task.chapters || []).find((c: any) => c.label === chapterLabel);
+    if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+
+    const deeplKey = process.env.DEEPL_API_KEY || '';
+    if (mode === 'translated' && !deeplKey) {
+      return res.status(503).json({ error: 'DEEPL_API_KEY is not configured' });
+    }
+
+    const engine = ocrEngine || 'gemini';
+    if (engine !== 'gemini' && engine !== 'easyocr') {
+      return res.status(400).json({ error: 'Invalid ocrEngine. Use gemini or easyocr.' });
+    }
+
+    const getEasyOcrLanguages = (langInput: string | string[] | undefined): string[] => {
+      if (Array.isArray(langInput)) return langInput.filter(Boolean);
+      const raw = (langInput || 'ko').split(',').map(v => v.trim()).filter(Boolean);
+      return raw.length ? raw : ['ko'];
+    };
+
+    const getMime = (fp: string) => {
+      const ext = path.extname(fp).toLowerCase();
+      if (ext === '.png') return 'image/png';
+      if (ext === '.webp') return 'image/webp';
+      return 'image/jpeg';
+    };
+
+    // Translate a block of text to Arabic using DeepL
+    const translateWithDeepL = async (text: string): Promise<string> => {
+      try {
+        const deeplRes = await fetch('https://api-free.deepl.com/v2/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `DeepL-Auth-Key ${deeplKey}` },
+          body: JSON.stringify({ text: [text], target_lang: 'AR' }),
+        });
+        if (!deeplRes.ok) {
+          console.error(`DeepL error (${deeplRes.status}):`, await deeplRes.text());
+          return '';
+        }
+        const data = await deeplRes.json() as any;
+        return data?.translations?.[0]?.text || '';
+      } catch (e) {
+        console.error('DeepL translation failed:', e);
+        return '';
+      }
+    };
+
+    const results: { page: number; raw: string; translated?: string }[] = [];
+
+    if (engine === 'easyocr') {
+      const languages = getEasyOcrLanguages(ocrLang);
+      const scriptPath = path.join(process.cwd(), 'services', 'automation', 'tools', 'easyocr-ocr', 'extract.py');
+      if (!fs.existsSync(scriptPath)) {
+        return res.status(500).json({ error: 'EasyOCR tool is missing. Ensure extract.py exists.' });
+      }
+
+      const easyResults = await new Promise<{ page: number; text?: string; error?: string }[]>((resolve, reject) => {
+        const child = spawn('python3', ['-u', scriptPath], { cwd: process.cwd() });
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (d) => { stdout += d.toString(); });
+        child.stderr.on('data', (d) => { stderr += d.toString(); });
+        child.on('error', reject);
+        child.on('close', (code) => {
+          if (code !== 0) {
+            return reject(new Error(stderr || `EasyOCR exited with code ${code}`));
+          }
+          try {
+            const parsed = JSON.parse(stdout || '{}');
+            if (parsed?.error) return reject(new Error(parsed.error));
+            resolve(parsed?.results || []);
+          } catch (e: any) {
+            reject(new Error(`Failed to parse EasyOCR output: ${e.message}`));
+          }
+        });
+
+        const payload = JSON.stringify({ images: chapter.imagePaths, languages });
+        child.stdin.write(payload);
+        child.stdin.end();
+      });
+
+      for (const entry of easyResults) {
+        const rawText = entry.error
+          ? `[Error on page ${entry.page}: ${entry.error}]`
+          : (entry.text || '').trim() || '(no text)';
+        const result: { page: number; raw: string; translated?: string } = { page: entry.page, raw: rawText };
+        if (mode === 'translated' && rawText && rawText !== '(no text)' && !rawText.startsWith('[Error on page')) {
+          result.translated = await translateWithDeepL(rawText);
+        }
+        results.push(result);
+      }
+    } else {
+      const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+      if (!geminiKey) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+      const aiLocal = new GoogleGenAI({ apiKey: geminiKey });
+
+      for (let i = 0; i < chapter.imagePaths.length; i++) {
+        const imgPath = chapter.imagePaths[i];
+        if (!fs.existsSync(imgPath)) continue;
+        try {
+          const imageData = fs.readFileSync(imgPath).toString('base64');
+          const mimeType = getMime(imgPath);
+
+          // Step 1: OCR — Gemini extracts raw text only
+          const ocrResponse = await aiLocal.models.generateContent({
+            model: 'gemini-2.5-flash-preview-05-20',
+            contents: [{ role: 'user', parts: [
+              { inlineData: { data: imageData, mimeType } },
+              { text: 'Extract all text (speech bubbles, signs, narration) from this comic page in reading order. Return ONLY the extracted text as-is. If no text, return: (no text)' }
+            ]}],
+          });
+
+          const rawText = (ocrResponse.text || '').trim();
+          const entry: { page: number; raw: string; translated?: string } = { page: i + 1, raw: rawText };
+
+          // Step 2: Translate with DeepL if requested
+          if (mode === 'translated' && rawText && rawText !== '(no text)') {
+            entry.translated = await translateWithDeepL(rawText);
+          }
+
+          results.push(entry);
+        } catch (err: any) {
+          results.push({ page: i + 1, raw: `[Error on page ${i + 1}: ${err.message}]` });
+        }
+      }
+    }
+
+    res.json({ results, chapterLabel });
+  });
+
+  // ── Merger Engine ─────────────────────────────────────────────────────────────
   app.post("/api/automation/quick-chapter-upload", upload.fields([
     { name: 'zipFile', maxCount: 1 },
     { name: 'imageFiles', maxCount: 500 }
@@ -1060,4 +1238,15 @@ async function startServer() {
   });
 }
 
-startServer();
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+startServer().catch((err) => {
+  console.error('[startServer fatal]', err);
+  process.exit(1);
+});

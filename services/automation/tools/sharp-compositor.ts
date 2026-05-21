@@ -182,3 +182,81 @@ export async function stitchVertical(
 
   return results;
 }
+
+/**
+ * Merger Engine
+ *
+ * Merges an ordered array of image paths into batches of `groupSize`,
+ * stitching each batch vertically into one long-strip WebP.
+ * Reduces page/request count by ~(groupSize-1)/groupSize
+ * (e.g. 70 images × groupSize 7 → 10 strips, ~86% fewer requests).
+ *
+ * Returns the absolute output paths of the merged images.
+ */
+export async function mergeImagePaths(
+  imagePaths: string[],
+  outputDir: string,
+  groupSize = 7,
+  targetWidth = 1000,
+  quality = 88
+): Promise<string[]> {
+  if (imagePaths.length === 0) return [];
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const imageExts = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
+  const validPaths = imagePaths.filter(
+    p => imageExts.has(path.extname(p).toLowerCase()) && fs.existsSync(p)
+  );
+  if (validPaths.length === 0) return [];
+
+  const results: string[] = [];
+  const groups: string[][] = [];
+  for (let i = 0; i < validPaths.length; i += groupSize) {
+    groups.push(validPaths.slice(i, i + groupSize));
+  }
+
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g];
+    const outName = `merged_${String(g + 1).padStart(3, '0')}.webp`;
+    const outPath = path.join(outputDir, outName);
+
+    if (group.length === 1) {
+      await sharp(group[0])
+        .resize(targetWidth, null, { fit: 'inside', withoutEnlargement: false })
+        .webp({ quality })
+        .toFile(outPath);
+      results.push(outPath);
+      continue;
+    }
+
+    const resizedBuffers: { buffer: Buffer; height: number }[] = [];
+    let canonicalWidth = targetWidth;
+
+    for (const imgPath of group) {
+      const resized = await sharp(imgPath)
+        .resize(targetWidth, null, { fit: 'inside', withoutEnlargement: false })
+        .toBuffer({ resolveWithObject: true });
+      canonicalWidth = resized.info.width;
+      resizedBuffers.push({ buffer: resized.data, height: resized.info.height });
+    }
+
+    const totalHeight = resizedBuffers.reduce((sum, img) => sum + img.height, 0);
+    const composites: { input: Buffer; top: number; left: number }[] = [];
+    let currentY = 0;
+    for (const img of resizedBuffers) {
+      composites.push({ input: img.buffer, top: currentY, left: 0 });
+      currentY += img.height;
+    }
+
+    await sharp({
+      create: { width: canonicalWidth, height: totalHeight, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .composite(composites)
+      .webp({ quality })
+      .toFile(outPath);
+
+    results.push(outPath);
+  }
+
+  return results;
+}
