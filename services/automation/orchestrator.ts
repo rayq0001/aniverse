@@ -237,11 +237,18 @@ export class AutomationOrchestrator {
       // 3.5. OPTIMIZE — Convert final images to high-fidelity JPG with Sharp
       const stepStart35 = Date.now();
       const finalImages = this.getImageFilesRecursive(finalPath);
-      let optimizedImages = finalImages;
+      const rawImages = this.getImageFilesRecursive(rawPath);
+      const hasFinalImages = finalImages.length > 0;
+      const optimizationSourceDir = hasFinalImages ? finalPath : rawPath;
+      const optimizationSourceImages = hasFinalImages ? finalImages : rawImages;
+      if (!hasFinalImages && rawImages.length > 0) {
+        this.log(taskId, `⚠️ [STEP 3.5]: Processed output had no images, using ${rawImages.length} raw image(s) instead.`, tasks);
+      }
+      let optimizedImages = optimizationSourceImages;
       try {
-        this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${finalImages.length} images with Sharp...`, tasks);
+        this.log(taskId, `🖼️ [STEP 3.5]: Optimizing ${optimizationSourceImages.length} images with Sharp...`, tasks);
         const jpgPath = path.join(this.tempPath, seriesLabel, chapterLabel, 'jpg');
-        const jpgFiles = await convertToJpeg(finalPath, jpgPath, 85);
+        const jpgFiles = await convertToJpeg(optimizationSourceDir, jpgPath, 85);
         if (jpgFiles.length > 0) {
           optimizedImages = jpgFiles;
           this.log(taskId, `⏱️ [STEP 3.5] High-fidelity JPG conversion done in ${((Date.now() - stepStart35) / 1000).toFixed(1)}s`, tasks);
