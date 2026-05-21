@@ -457,6 +457,9 @@ export class AutomationOrchestrator {
     tasks: Record<string, any>
   ) {
     const { source, contentId, startChapter, endChapter, manhwaId } = data;
+    if (!/^[A-Za-z0-9_-]+$/.test(manhwaId)) {
+      throw new Error('Invalid manhwaId format.');
+    }
     const totalChapters = endChapter - startChapter + 1;
 
     try {
@@ -499,43 +502,72 @@ export class AutomationOrchestrator {
           return null;
         };
 
-        const findChapterDirs = (dir: string, inheritedChapter: number | null = null): Map<number, string> => {
+        const imagePattern = /\.(jpg|jpeg|png|webp|avif)$/i;
+        const rawRoot = fs.realpathSync(rawPath);
+        const getSafePath = (targetPath: string): string | null => {
+          try {
+            const realTargetPath = fs.realpathSync(targetPath);
+            if (realTargetPath === rawRoot || realTargetPath.startsWith(`${rawRoot}${path.sep}`)) {
+              return realTargetPath;
+            }
+            this.log(taskId, `⚠️ Skipping unsafe scrape path: ${targetPath}`, tasks);
+            return null;
+          } catch (err: any) {
+            this.log(taskId, `⚠️ Failed to resolve scrape path "${targetPath}": ${err?.message || 'unknown error'}`, tasks);
+            return null;
+          }
+        };
+
+        const readDirEntriesSafe = (targetPath: string): fs.Dirent[] => {
+          const safePath = getSafePath(targetPath);
+          if (!safePath) return [];
+          try {
+            return fs.readdirSync(safePath, { withFileTypes: true });
+          } catch (err: any) {
+            this.log(taskId, `⚠️ Failed to read scrape directory "${safePath}": ${err?.message || 'unknown error'}`, tasks);
+            return [];
+          }
+        };
+
+        const readImageCount = (targetPath: string): number =>
+          readDirEntriesSafe(targetPath).filter(entry => entry.isFile() && imagePattern.test(entry.name)).length;
+
+        const findChapterDirs = (dir: string, inheritedChapter: number | null = null): Map<number, { dir: string; imageCount: number }> => {
           const bestByChapter = new Map<number, { dir: string; imageCount: number }>();
-          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          const safeDir = getSafePath(dir);
+          if (!safeDir) return bestByChapter;
+          const entries = readDirEntriesSafe(safeDir);
 
           for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
+            const fullPath = path.join(safeDir, entry.name);
             if (!entry.isDirectory()) continue;
 
             const chapterFromName = parseChapterNumber(entry.name);
             const chapterNum = chapterFromName ?? inheritedChapter;
-            const directImages = fs.readdirSync(fullPath).filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i));
+            const directImageCount = readImageCount(fullPath);
 
-            if (chapterNum !== null && chapterNum >= batchStart && chapterNum <= batchEnd && directImages.length > 0) {
+            if (chapterNum !== null && chapterNum >= batchStart && chapterNum <= batchEnd && directImageCount > 0) {
               const current = bestByChapter.get(chapterNum);
-              if (!current || directImages.length > current.imageCount) {
-                bestByChapter.set(chapterNum, { dir: fullPath, imageCount: directImages.length });
+              if (!current || directImageCount > current.imageCount) {
+                bestByChapter.set(chapterNum, { dir: fullPath, imageCount: directImageCount });
               }
-            } else if (chapterNum === null && batchStart === batchEnd && directImages.length > 0) {
+            } else if (chapterNum === null && batchStart === batchEnd && directImageCount > 0) {
+              // Single-chapter batches may have non-numeric wrapper folders from the scraper.
               const current = bestByChapter.get(batchStart);
-              if (!current || directImages.length > current.imageCount) {
-                bestByChapter.set(batchStart, { dir: fullPath, imageCount: directImages.length });
+              if (!current || directImageCount > current.imageCount) {
+                bestByChapter.set(batchStart, { dir: fullPath, imageCount: directImageCount });
               }
             }
 
             const nested = findChapterDirs(fullPath, chapterNum);
-            nested.forEach((nestedDir, nestedChapter) => {
-              const nestedCount = fs.readdirSync(nestedDir).filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i)).length;
+            nested.forEach((nestedData, nestedChapter) => {
               const current = bestByChapter.get(nestedChapter);
-              if (!current || nestedCount > current.imageCount) {
-                bestByChapter.set(nestedChapter, { dir: nestedDir, imageCount: nestedCount });
+              if (!current || nestedData.imageCount > current.imageCount) {
+                bestByChapter.set(nestedChapter, nestedData);
               }
             });
           }
-
-          const result = new Map<number, string>();
-          bestByChapter.forEach((value, key) => result.set(key, value.dir));
-          return result;
+          return bestByChapter;
         };
 
         const chapterDirs = findChapterDirs(rawPath);
@@ -544,12 +576,13 @@ export class AutomationOrchestrator {
         // Process each chapter: copy to uploads and create Firestore record
         const uploadsBase = path.join(process.cwd(), 'uploads', 'manhwas', manhwaId, 'chapters');
 
-        for (const [chNum, chDir] of chapterDirs) {
+        for (const [chNum, chapterData] of chapterDirs) {
+          const chDir = chapterData.dir;
           const destDir = path.join(uploadsBase, String(chNum));
           if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
           const images = fs.readdirSync(chDir)
-            .filter(f => f.match(/\.(jpg|jpeg|png|webp|avif)$/i))
+            .filter(f => imagePattern.test(f))
             .sort((a, b) => {
               const nA = parseInt(a.replace(/[^0-9]/g, '') || '0');
               const nB = parseInt(b.replace(/[^0-9]/g, '') || '0');
